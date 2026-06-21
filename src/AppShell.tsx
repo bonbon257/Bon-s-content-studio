@@ -11,6 +11,7 @@ import {
   Leaf,
   Loader2,
   MessageCircle,
+  Palette as PaletteIcon,
   PenLine,
   RefreshCw,
   Save,
@@ -27,6 +28,14 @@ import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPane
 import { HistoryPanel } from './components/HistoryPanel';
 import { ResearchView } from './components/ResearchView';
 import { SettingsDrawer } from './components/SettingsDrawer';
+import { ThemeDrawer } from './components/ThemeDrawer';
+import {
+  applyThemeSettings,
+  loadThemeSettings,
+  saveThemeSettings,
+  THEME_PRESETS,
+  type ThemeSettings,
+} from './theme';
 import { BUILT_IN_VIRAL_EXAMPLES } from './data/viralExamples';
 import { useHistory } from './hooks/useHistory';
 import {
@@ -35,6 +44,7 @@ import {
   COUNTRIES,
   generateAppRecommendation,
   generateFromArticle,
+  generateFromDocument,
   generateFromTopic,
   LANGUAGE_MAP,
   loadConfig,
@@ -58,7 +68,7 @@ import type {
 } from './types';
 import { buildViralSkillContext } from './viralSkill';
 
-type AppTab = 'article' | 'topic' | 'research' | 'chat' | 'app' | 'history';
+type AppTab = 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
 type Stage = 'empty' | 'angles' | 'generating' | 'result';
 
 const platforms: Platform[] = ['小红书', '抖音'];
@@ -71,6 +81,7 @@ const tabs: { key: Exclude<AppTab, 'history'>; label: string; icon: typeof PenLi
   { key: 'research', label: '资料检索', icon: Search },
   { key: 'chat', label: '聊天生成', icon: MessageCircle },
   { key: 'app', label: 'APP推荐', icon: BookOpen },
+  { key: 'document', label: '按文档生成', icon: FileText },
 ];
 
 const angleColors = ['#F5D5D5', '#F5E6D0', '#E0D5F5', '#D5F0E0', '#D5E8F5'];
@@ -174,10 +185,12 @@ function TopBar({
   active,
   onTabChange,
   onSettings,
+  onTheme,
 }: {
   active: AppTab;
   onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
   onSettings: () => void;
+  onTheme: () => void;
 }) {
   return (
     <header className="mac-topbar">
@@ -199,6 +212,9 @@ function TopBar({
       </div>
       <div className="flex items-center gap-3">
         <div className="mac-top-avatar">B</div>
+        <button type="button" onClick={onTheme} className="mac-icon-btn" title="页面设计">
+          <PaletteIcon className="h-5 w-5" />
+        </button>
         <button type="button" onClick={onSettings} className="mac-icon-btn" title="设置">
           <SettingsIcon className="h-5 w-5" />
         </button>
@@ -1676,6 +1692,267 @@ function ChatLabView({
   );
 }
 
+function DocumentGeneratorView({
+  document,
+  briefing,
+  includeChat,
+  result,
+  variation,
+  loading,
+  error,
+  country,
+  platform,
+  onDocumentChange,
+  onBriefingChange,
+  onIncludeChatChange,
+  onCountryChange,
+  onPlatformChange,
+  onGenerate,
+  onRegenerate,
+  onClear,
+  onCopy,
+}: {
+  document: string;
+  briefing: string;
+  includeChat: boolean;
+  result: GenerationResult | null;
+  variation: number;
+  loading: boolean;
+  error: string;
+  country: Country;
+  platform: Platform;
+  onDocumentChange: (value: string) => void;
+  onBriefingChange: (value: string) => void;
+  onIncludeChatChange: (value: boolean) => void;
+  onCountryChange: (value: Country) => void;
+  onPlatformChange: (value: Platform) => void;
+  onGenerate: () => void;
+  onRegenerate: () => void;
+  onClear: () => void;
+  onCopy: (text: string) => void;
+}) {
+  const tagsText = result?.tags.join(' ') || '';
+  const fullPostText = result ? [result.title, '', result.post, '', tagsText].join('\n') : '';
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mac-card p-6"
+    >
+      <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <aside className="space-y-5 xl:sticky xl:top-4 xl:self-start">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="mac-kicker">Doc-driven · 按文档生成</p>
+              <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">按文档生成</h1>
+              <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+                上传 / 粘贴本次活动文档，写明投放要求，AI 会按要求输出标题、正文和标签。
+              </p>
+            </div>
+            <FileText className="h-10 w-10 shrink-0 text-[#F0B8B8]" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mac-label">国家</span>
+              <select
+                value={country}
+                onChange={(event) => onCountryChange(event.target.value as Country)}
+                className="mac-input"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mac-label">平台</span>
+              <select
+                value={platform}
+                onChange={(event) => onPlatformChange(event.target.value as Platform)}
+                className="mac-input"
+              >
+                {platforms.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="mb-2 flex items-center justify-between">
+              <span className="mac-label !mb-0">本次活动 / 投放说明</span>
+              {(briefing.trim() || document.trim()) && (
+                <button type="button" onClick={onClear} className="mac-clear-btn">
+                  一键清空
+                </button>
+              )}
+            </span>
+            <textarea
+              value={briefing}
+              onChange={(event) => onBriefingChange(event.target.value)}
+              rows={4}
+              placeholder="例如：本次是沪江推广，要求只做真实分享，不要带聊天记录；正文要突出文化差异点 + 学习困扰。"
+              className="mac-textarea !min-h-[110px]"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mac-label">素材文档（导入或粘贴）</span>
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[18px] bg-[#F5F0E8] p-3">
+              <label className="mac-mini-btn cursor-pointer !bg-white">
+                <FileText className="h-3.5 w-3.5" />
+                读取文档
+                <input
+                  type="file"
+                  accept=".txt,.md,.csv,.json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => onDocumentChange(String(reader.result || ''));
+                    reader.readAsText(file);
+                    event.currentTarget.value = '';
+                  }}
+                />
+              </label>
+              <span className="text-xs leading-5 text-[#6B6B6B]">
+                支持 txt / md / csv / json；也可直接粘贴正文。
+              </span>
+            </div>
+            <textarea
+              value={document}
+              onChange={(event) => onDocumentChange(event.target.value)}
+              rows={8}
+              placeholder="把活动文档/产品口径/品牌资料粘贴在这里。AI 会读取学习，但只输出真人分享语气，不会照抄。"
+              className="mac-textarea !min-h-[180px]"
+            />
+          </label>
+
+          <label className="flex items-center gap-3 rounded-[18px] bg-[#F5F0E8] p-3 text-sm text-[#1A1A1A]">
+            <input
+              type="checkbox"
+              checked={includeChat}
+              onChange={(event) => onIncludeChatChange(event.target.checked)}
+              className="h-4 w-4"
+            />
+            同时输出聊天记录（默认关闭，仅勾选时生成）
+          </label>
+
+          {error && <p className="rounded-2xl bg-[#F5D5D5] px-4 py-2 text-sm text-[#1A1A1A]">{error}</p>}
+
+          <div className="flex flex-col gap-2">
+            <button type="button" onClick={onGenerate} disabled={loading} className="mac-primary-btn w-full">
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  生成中...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  按文档生成
+                </>
+              )}
+            </button>
+            {result && (
+              <button
+                type="button"
+                onClick={onRegenerate}
+                disabled={loading}
+                className="mac-secondary-btn w-full"
+              >
+                <RefreshCw className="h-4 w-4" />
+                换一版（已换 {variation} 次）
+              </button>
+            )}
+          </div>
+        </aside>
+
+        <main className="min-w-0">
+          {!result && (
+            <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border-2 border-dashed border-[#E8E4DE] bg-[#FAF7F2] p-8 text-center">
+              <div>
+                <FileText className="mx-auto mb-4 h-10 w-10 text-[#F0B8B8]" />
+                <h2 className="text-lg font-black text-[#1A1A1A]">右侧会显示生成结果</h2>
+                <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+                  默认仅生成标题、正文和标签；如需聊天记录，请勾选左侧选项。
+                </p>
+              </div>
+            </div>
+          )}
+
+          {result && (
+            <div className="space-y-4">
+              <section className="mac-result-card">
+                <header className="mac-result-header">
+                  <span>🏷️ 标题</span>
+                  <button type="button" onClick={() => onCopy(result.title)} className="mac-mini-btn">
+                    <Copy className="h-3.5 w-3.5" /> 复制
+                  </button>
+                </header>
+                <p className="mac-result-title">{result.title}</p>
+              </section>
+
+              <section className="mac-result-card">
+                <header className="mac-result-header">
+                  <span>📝 正文</span>
+                  <button type="button" onClick={() => onCopy(result.post)} className="mac-mini-btn">
+                    <Copy className="h-3.5 w-3.5" /> 复制
+                  </button>
+                </header>
+                <p className="mac-result-post whitespace-pre-wrap">{result.post}</p>
+              </section>
+
+              <section className="mac-result-card">
+                <header className="mac-result-header">
+                  <span>🏷️ 标签</span>
+                  <button type="button" onClick={() => onCopy(tagsText)} className="mac-mini-btn">
+                    <Copy className="h-3.5 w-3.5" /> 复制
+                  </button>
+                </header>
+                <p className="text-sm text-[#6B6B6B]">{tagsText}</p>
+              </section>
+
+              {includeChat && result.chat && result.chat.length > 0 && (
+                <section className="mac-result-card">
+                  <header className="mac-result-header">
+                    <span>💬 聊天记录</span>
+                  </header>
+                  <div className="space-y-2">
+                    {result.chat.map((row, idx) => (
+                      <div key={idx} className="rounded-2xl bg-[#FAF7F2] p-3 text-sm leading-6 text-[#1A1A1A]">
+                        <p className="text-xs font-semibold text-[#6B6B6B]">{row.target}</p>
+                        <p>{row.chinese}</p>
+                        {row.foreign && <p className="text-[#6B6B6B]">{row.foreign}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <button
+                type="button"
+                onClick={() => onCopy(fullPostText)}
+                className="mac-primary-btn w-full"
+              >
+                <Copy className="h-4 w-4" />
+                复制完整内容（标题 + 正文 + 标签）
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
+    </motion.section>
+  );
+}
+
 function MobileBottomNav({
   active,
   onTabChange,
@@ -1727,6 +2004,8 @@ export default function AppShell() {
   const [chatLoading, setChatLoading] = useState(false);
   const [rowLoadingIndex, setRowLoadingIndex] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
   const [config, setConfig] = useState(() => loadConfig());
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
@@ -1749,6 +2028,15 @@ export default function AppShell() {
   const [appLoading, setAppLoading] = useState(false);
   const [appRevising, setAppRevising] = useState(false);
   const [appError, setAppError] = useState('');
+
+  // Document-based generation state
+  const [docDocument, setDocDocument] = useState('');
+  const [docBriefing, setDocBriefing] = useState('');
+  const [docIncludeChat, setDocIncludeChat] = useState(false);
+  const [docResult, setDocResult] = useState<GenerationResult | null>(null);
+  const [docVariation, setDocVariation] = useState(0);
+  const [docLoading, setDocLoading] = useState(false);
+  const [docError, setDocError] = useState('');
 
   const history = useHistory();
   const viralExamples = useMemo(() => loadViralLibrary(), []);
@@ -2175,6 +2463,47 @@ export default function AppShell() {
     }
   }
 
+  async function handleGenerateFromDocument(mode: 'first' | 'regenerate') {
+    if (!docDocument.trim() && !docBriefing.trim()) {
+      setDocError('请先上传/粘贴文档，或填写本次活动说明。');
+      showToast('请先填写文档或活动说明');
+      return;
+    }
+    setDocError('');
+    setDocLoading(true);
+    try {
+      const variation = mode === 'regenerate' ? docVariation + 1 : 0;
+      const nextResult = await generateFromDocument({
+        config,
+        document: docDocument,
+        briefing: docBriefing,
+        country,
+        platform,
+        includeChat: docIncludeChat,
+        variation,
+        viralSkill: buildViralSkillContext(combinedViralExamples, docBriefing || docDocument),
+      });
+      setDocResult(nextResult);
+      setDocVariation(variation);
+      showToast(mode === 'regenerate' ? '已为你换一版' : '已根据文档生成内容');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '按文档生成失败';
+      setDocError(message);
+      showToast(message);
+    } finally {
+      setDocLoading(false);
+    }
+  }
+
+  function handleClearDocument() {
+    setDocDocument('');
+    setDocBriefing('');
+    setDocIncludeChat(false);
+    setDocResult(null);
+    setDocVariation(0);
+    setDocError('');
+  }
+
   function handleSaveConfig(nextConfig: typeof config) {
     setConfig(nextConfig);
     saveConfig(nextConfig);
@@ -2252,6 +2581,11 @@ export default function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoAnalyze, active]);
 
+  useEffect(() => {
+    applyThemeSettings(themeSettings);
+    saveThemeSettings(themeSettings);
+  }, [themeSettings]);
+
   return (
     <div className="mac-page-shell">
       <AnimatePresence>{toast && <Toast message={toast} />}</AnimatePresence>
@@ -2259,12 +2593,19 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={() => setThemeOpen(true)} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
             onClose={() => setSettingsOpen(false)}
             onSave={handleSaveConfig}
+          />
+          <ThemeDrawer
+            open={themeOpen}
+            settings={themeSettings}
+            onClose={() => setThemeOpen(false)}
+            onChange={setThemeSettings}
+            onReset={() => setThemeSettings(THEME_PRESETS.creamGreen.settings)}
           />
 
           {active === 'history' ? (
@@ -2315,6 +2656,35 @@ export default function AppShell() {
                   setAppResult(null);
                   setAppError('');
                 }}
+                onCopy={handleCopy}
+              />
+            </div>
+          ) : active === 'document' ? (
+            <div className="mac-content-scroll">
+              <DocumentGeneratorView
+                document={docDocument}
+                briefing={docBriefing}
+                includeChat={docIncludeChat}
+                result={docResult}
+                variation={docVariation}
+                loading={docLoading}
+                error={docError}
+                country={country}
+                platform={platform}
+                onDocumentChange={(value) => {
+                  setDocDocument(value);
+                  setDocError('');
+                }}
+                onBriefingChange={(value) => {
+                  setDocBriefing(value);
+                  setDocError('');
+                }}
+                onIncludeChatChange={setDocIncludeChat}
+                onCountryChange={setCountry}
+                onPlatformChange={setPlatform}
+                onGenerate={() => handleGenerateFromDocument('first')}
+                onRegenerate={() => handleGenerateFromDocument('regenerate')}
+                onClear={handleClearDocument}
                 onCopy={handleCopy}
               />
             </div>

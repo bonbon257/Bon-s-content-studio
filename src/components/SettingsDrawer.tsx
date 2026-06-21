@@ -47,10 +47,10 @@ export function SettingsDrawer({
         onClick={onClose}
       />
       <aside
-        className="absolute right-0 top-0 h-full w-full max-w-md border-l border-line bg-canvas p-8 shadow-xl"
+        className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-line bg-canvas shadow-xl"
         style={{ animation: 'n-fade-up 0.2s ease' }}
       >
-        <div className="mb-8 flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-line/60 px-8 pb-5 pt-8">
           <div>
             <h2 className="n-h2">配置</h2>
             <p className="n-muted mt-1">配置保存在本地浏览器，不会上传。</p>
@@ -60,7 +60,8 @@ export function SettingsDrawer({
           </button>
         </div>
 
-        <div className="space-y-7">
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          <div className="space-y-7">
           <div className="rounded-[20px] bg-white/70 p-4">
             <p className="mb-4 text-sm font-bold text-ink">正文 / 角度 / 资料检索模型</p>
             <label className="block">
@@ -189,6 +190,7 @@ export function SettingsDrawer({
               <ExternalLink className="h-3 w-3" />
             </a>
           </p>
+          </div>
         </div>
       </aside>
     </div>

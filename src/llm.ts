@@ -142,12 +142,12 @@ ${FACT_RULES}
 - 120-220字优先，第一人称，像普通用户发帖；能短则短，不要为了凑字数重复解释。
 - 必须严格三段式，用换行分成三段。
 - 第一段：现状、生活观察或疑问。
-- 第二段：去 HelloTalk 找搭子聊天，围绕这个话题问外国人并得到一些个人经验式回复。
+- 第二段：写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给的真实回应；只能出现一个外国朋友，不要出现"我又问了另一个外国人""我朋友们""几个外国人""一群外国人"。禁止写"先和外国人聊天/认识，然后再去 HelloTalk"的逻辑，这位朋友本身就是在 HelloTalk 上认识的。
 - 第三段：总结和开放式提问。
-- 必须自然提及 HelloTalk 1次，只能 1次。
+- 必须自然提及 HelloTalk 1次，只能 1次；提及方式必须明确"在 HelloTalk 上认识的"这层关系。
 - 禁止"下载""推广""点击""快去用"等硬广表达。
 - 正文不要重复标题，不要重复同一个观点，不要写成科普说明文；重点是让用户看完觉得"这个观察有意思/我也想评论/我愿意点赞"。
-- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？如果没有，请重写。
+- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？是否全文只出现了一个外国朋友？是否表达成"在 HelloTalk 上认识的朋友"，而不是"和外国人聊天后再去 HelloTalk"？如果没有，请重写。
 
 Tag 规则：
 - 输出 6-10 个标签。
@@ -698,6 +698,50 @@ ${FACT_RULES}
 正文必须三段式。输出前自检：标题是否有具体重点？正文是否真人、简短、不重复？如果不成立，先重写再输出。
 tags 6-10 条，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
 factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
+请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+  );
+  return normalizeResult(payload);
+}
+
+export async function generateFromDocument(params: {
+  config: LlmConfig;
+  document: string;
+  briefing: string;
+  country: Country;
+  platform: Platform;
+  includeChat: boolean;
+  variation?: number;
+  viralSkill?: string;
+}): Promise<GenerationResult> {
+  const variationHint =
+    params.variation && params.variation > 0
+      ? `\n这是第 ${params.variation + 1} 次"换一版"，必须与之前的版本切入角度不同：换一种立意、不同的开头钩子、不同的细节场景，避免重复表达。`
+      : '';
+  const chatRule = params.includeChat
+    ? `\n请同时输出 chat 数组（4-6 行），用三列字段 target/chinese/foreign 表示"对象/中文/对应语言"；如果文档明确表示不需要聊天记录，则输出空数组 []。`
+    : `\n本次活动只需要"真实分享"，请输出空数组 chat: []，不要生成任何聊天记录。`;
+  const payload = await callChatJson<GenerationResult>(
+    params.config,
+    `请基于"按文档生成模式"输出 1 条小红书/抖音真实分享内容。
+国家：${params.country}
+平台：${params.platform}
+目标外语：${LANGUAGE_MAP[params.country]}
+${formatViralSkill(params.viralSkill)}
+${FACT_RULES}
+本次活动 / 投放说明（请严格遵守，所有要求必须落地到正文里）：
+${params.briefing || '（用户未额外说明，按文档默认推广角度处理）'}
+
+参考素材文档（包括产品卖点、品牌口径、合规要求、案例等，仅作为知识，不得照搬，不得复制原句）：
+${params.document}
+
+输出要求：
+- 标题不超过 22 字，要精准抓住活动里最值得点进来的重点；不能像广告或软文标题。
+- 正文 120-220 字优先，真人分享语气，不能像 AI、科普稿、说明书。
+- 正文必须三段式：第一段真实背景或疑问；第二段写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给出的真实回应；只能出现一个外国朋友，不要写"我又问了另一个外国人""我朋友们""几个外国人""一群外国人"。禁止写"先和外国人聊天/认识，然后再去 HelloTalk"的逻辑，这位朋友本身就是在 HelloTalk 上认识的。第三段总结并抛出开放式问题。
+- 必须自然提及 HelloTalk 1次，只能 1次；提及方式必须明确"在 HelloTalk 上认识的"这层关系。
+- tags 6-10 条，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
+- factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。${chatRule}${variationHint}
+
 请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
   );
   return normalizeResult(payload);
