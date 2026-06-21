@@ -1,0 +1,2427 @@
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookOpen,
+  CheckCircle2,
+  Clock3,
+  Copy,
+  ExternalLink,
+  FileText,
+  History,
+  Leaf,
+  Loader2,
+  MessageCircle,
+  PenLine,
+  RefreshCw,
+  Save,
+  Search,
+  Settings as SettingsIcon,
+  Sparkles,
+  Trash2,
+  User,
+  XCircle,
+} from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
+import { HistoryPanel } from './components/HistoryPanel';
+import { ResearchView } from './components/ResearchView';
+import { SettingsDrawer } from './components/SettingsDrawer';
+import { BUILT_IN_VIRAL_EXAMPLES } from './data/viralExamples';
+import { useHistory } from './hooks/useHistory';
+import {
+  analyzeArticle,
+  analyzeTopic,
+  COUNTRIES,
+  generateAppRecommendation,
+  generateFromArticle,
+  generateFromTopic,
+  LANGUAGE_MAP,
+  loadConfig,
+  polishText,
+  regenerateChat,
+  regenerateChatRow,
+  researchTopic,
+  reviseGeneratedContent,
+  saveConfig,
+} from './llm';
+import type {
+  Angle,
+  AppRecommendationResult,
+  ChatRow,
+  Country,
+  FactCheckItem,
+  GenerationResult,
+  HistoryRecord,
+  Platform,
+  Scene,
+} from './types';
+import { buildViralSkillContext } from './viralSkill';
+
+type AppTab = 'article' | 'topic' | 'research' | 'chat' | 'app' | 'history';
+type Stage = 'empty' | 'angles' | 'generating' | 'result';
+
+const platforms: Platform[] = ['小红书', '抖音'];
+const VIRAL_LIBRARY_KEY = 'ht-viral-examples-library';
+const APP_PASSWORD_KEY = 'ht-app-password';
+
+const tabs: { key: Exclude<AppTab, 'history'>; label: string; icon: typeof PenLine }[] = [
+  { key: 'article', label: '文章改写', icon: PenLine },
+  { key: 'topic', label: '话题创作', icon: Sparkles },
+  { key: 'research', label: '资料检索', icon: Search },
+  { key: 'chat', label: '聊天生成', icon: MessageCircle },
+  { key: 'app', label: 'APP推荐', icon: BookOpen },
+];
+
+const angleColors = ['#F5D5D5', '#F5E6D0', '#E0D5F5', '#D5F0E0', '#D5E8F5'];
+
+const emptyResult: GenerationResult = {
+  title: '',
+  post: '',
+  tags: [],
+  chat: [],
+  factChecks: [],
+};
+
+function loadViralLibrary() {
+  try {
+    return localStorage.getItem(VIRAL_LIBRARY_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function flagForCountry(country: Country) {
+  const map: Record<Country, string> = {
+    美国: '🇺🇸',
+    英国: '🇬🇧',
+    日本: '🇯🇵',
+    韩国: '🇰🇷',
+    德国: '🇩🇪',
+    法国: '🇫🇷',
+    西班牙: '🇪🇸',
+    意大利: '🇮🇹',
+    俄罗斯: '🇷🇺',
+    泰国: '🇹🇭',
+    巴西: '🇧🇷',
+    马来西亚: '🇲🇾',
+    新加坡: '🇸🇬',
+  };
+  return map[country] || '🌍';
+}
+
+function cleanTag(tag: string) {
+  return tag.replace(/^#+/, '').trim();
+}
+
+function Toast({ message }: { message: string }) {
+  if (!message) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -12, x: '-50%' }}
+      animate={{ opacity: 1, y: 0, x: '-50%' }}
+      exit={{ opacity: 0, y: -12, x: '-50%' }}
+      className="fixed left-1/2 top-5 z-[100] rounded-full bg-[#1A1A1A] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_30px_rgba(0,0,0,0.12)]"
+    >
+      {message}
+    </motion.div>
+  );
+}
+
+function SideNav({
+  active,
+  onTabChange,
+  onHistory,
+}: {
+  active: AppTab;
+  onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
+  onHistory: () => void;
+}) {
+  const items = [
+    ...tabs,
+    { key: 'history' as const, label: '历史', icon: History },
+  ];
+  return (
+    <aside className="mac-side-nav">
+      <div className="mac-logo-bubble">
+        <Leaf className="h-6 w-6" />
+      </div>
+      <nav className="mt-10 flex flex-col items-center gap-4">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const selected = active === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              title={item.label}
+              onClick={() => (item.key === 'history' ? onHistory() : onTabChange(item.key))}
+              className={`mac-side-icon ${selected ? 'is-active' : ''}`}
+            >
+              <Icon className="h-5 w-5" />
+            </button>
+          );
+        })}
+      </nav>
+      <div className="mt-auto mac-avatar">
+        <User className="h-5 w-5" />
+      </div>
+    </aside>
+  );
+}
+
+function TopBar({
+  active,
+  onTabChange,
+  onSettings,
+}: {
+  active: AppTab;
+  onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
+  onSettings: () => void;
+}) {
+  return (
+    <header className="mac-topbar">
+      <div className="mac-tabs">
+        {tabs.map((tab) => {
+          const selected = active === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => onTabChange(tab.key)}
+              className={`mac-tab ${selected ? 'is-active' : ''}`}
+            >
+              <span>{selected ? '●' : '○'}</span>
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="mac-top-avatar">B</div>
+        <button type="button" onClick={onSettings} className="mac-icon-btn" title="设置">
+          <SettingsIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function CuteIllustration() {
+  return (
+    <div className="mac-illustration">
+      <div className="mac-illo-face">
+        <span />
+        <span />
+      </div>
+      <div className="mac-illo-card one" />
+      <div className="mac-illo-card two" />
+      <Sparkles className="absolute right-7 top-5 h-5 w-5 text-[#F0B8B8]" />
+    </div>
+  );
+}
+
+function PlatformPills({
+  value,
+  onChange,
+}: {
+  value: Platform;
+  onChange: (value: Platform) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {platforms.map((item) => (
+        <button
+          key={item}
+          type="button"
+          onClick={() => onChange(item)}
+          className={`mac-platform-pill ${value === item ? 'is-active' : ''}`}
+        >
+          {item}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function InputCard({
+  scene,
+  article,
+  topic,
+  country,
+  platform,
+  loading,
+  error,
+  onArticleChange,
+  onTopicChange,
+  onCountryChange,
+  onPlatformChange,
+  onAnalyze,
+  onClear,
+}: {
+  scene: Scene;
+  article: string;
+  topic: string;
+  country: Country;
+  platform: Platform;
+  loading: 'analyze' | 'generate' | null;
+  error: string;
+  onArticleChange: (value: string) => void;
+  onTopicChange: (value: string) => void;
+  onCountryChange: (value: Country) => void;
+  onPlatformChange: (value: Platform) => void;
+  onAnalyze: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mac-card mac-input-card"
+    >
+      <CuteIllustration />
+      <div className="mt-6">
+        <p className="mac-kicker">{scene === 'article' ? 'Rewrite source' : 'Topic seed'}</p>
+        <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">
+          {scene === 'article' ? '把原文改成真实感爆文' : '从一个话题开始创作'}
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+          选择国家和平台后，先分析角度，再生成可发布内容。
+        </p>
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <label>
+          <span className="mac-label">国家</span>
+          <select
+            value={country}
+            onChange={(event) => onCountryChange(event.target.value as Country)}
+            className="mac-select"
+          >
+            {COUNTRIES.map((item) => (
+              <option key={item} value={item}>
+                {flagForCountry(item)} {item} · {LANGUAGE_MAP[item]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <span className="mac-label">平台</span>
+          <PlatformPills value={platform} onChange={onPlatformChange} />
+        </div>
+      </div>
+
+      <div className="mt-5">
+        {scene === 'article' ? (
+          <label>
+            <span className="mb-2 flex items-center justify-between">
+              <span className="mac-label !mb-0">原文</span>
+              {article.trim() && (
+                <button type="button" onClick={onClear} className="mac-clear-btn">
+                  一键清空
+                </button>
+              )}
+            </span>
+            <textarea
+              value={article}
+              onChange={(event) => onArticleChange(event.target.value)}
+              placeholder="粘贴你的文章到这里..."
+              className="mac-textarea"
+            />
+          </label>
+        ) : (
+          <label>
+            <span className="mb-2 flex items-center justify-between">
+              <span className="mac-label !mb-0">话题</span>
+              {topic.trim() && (
+                <button type="button" onClick={onClear} className="mac-clear-btn">
+                  一键清空
+                </button>
+              )}
+            </span>
+            <input
+              value={topic}
+              onChange={(event) => onTopicChange(event.target.value)}
+              placeholder="例如：为什么很少人润韩国"
+              className="mac-input"
+            />
+          </label>
+        )}
+      </div>
+
+      {error && <p className="mt-3 rounded-2xl bg-[#F5D5D5] px-4 py-2 text-sm text-[#1A1A1A]">{error}</p>}
+
+      <button type="button" onClick={onAnalyze} disabled={loading !== null} className="mac-primary-btn mt-5 w-full">
+        {loading === 'analyze' ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            分析中...
+          </>
+        ) : (
+          <>
+            <Sparkles className="h-4 w-4" />
+            分析角度
+          </>
+        )}
+      </button>
+    </motion.section>
+  );
+}
+
+function EmptyState() {
+  return (
+    <motion.div
+      key="empty"
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      className="flex min-h-[560px] flex-col items-center justify-center text-center"
+    >
+      <div className="relative h-32 w-32 rounded-full bg-[#D5E8F5]">
+        <div className="absolute left-8 top-10 h-14 w-16 rounded-[22px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)]" />
+        <Sparkles className="absolute right-7 top-7 h-7 w-7 text-[#F0B8B8]" />
+        <PenLine className="absolute bottom-8 left-12 h-8 w-8 text-[#1A1A1A]" />
+      </div>
+      <h2 className="mt-6 text-2xl font-bold text-[#1A1A1A]">在左侧输入内容，开始创作吧！</h2>
+      <p className="mt-2 max-w-[340px] text-sm leading-6 text-[#6B6B6B]">
+        输入原文或话题后点击分析，右侧会出现可选择的切入角度。
+      </p>
+    </motion.div>
+  );
+}
+
+function AngleSelection({
+  angles,
+  selectedAngleId,
+  loading,
+  onSelectAngle,
+  onAddCustomAngle,
+  onGenerate,
+}: {
+  angles: Angle[];
+  selectedAngleId: number | null;
+  loading: 'analyze' | 'generate' | null;
+  onSelectAngle: (id: number) => void;
+  onAddCustomAngle: (angle: Angle) => void;
+  onGenerate: () => void;
+}) {
+  const [customTitle, setCustomTitle] = useState('');
+  const [customDescription, setCustomDescription] = useState('');
+
+  function submitCustomAngle() {
+    const title = customTitle.trim();
+    const description = customDescription.trim();
+    if (!title) return;
+    const id = Math.max(0, ...angles.map((angle) => angle.id)) + 1;
+    onAddCustomAngle({
+      id,
+      title,
+      description: description || '根据我的自定义看法生成内容。',
+    });
+    setCustomTitle('');
+    setCustomDescription('');
+  }
+
+  return (
+    <motion.div
+      key="angles"
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      className="space-y-4"
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="mac-kicker">Angle lab</p>
+          <h2 className="mt-1 text-2xl font-bold text-[#1A1A1A]">✨ 找到 {angles.length} 个切入角度</h2>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {angles.map((angle, index) => {
+          const selected = selectedAngleId === angle.id;
+          return (
+            <motion.button
+              key={angle.id}
+              type="button"
+              whileHover={{ y: -2 }}
+              onClick={() => onSelectAngle(angle.id)}
+              className={`mac-angle-card ${selected ? 'is-selected' : ''}`}
+              style={{ backgroundColor: angleColors[index % angleColors.length] }}
+            >
+              <div className="mac-angle-icon">{index + 1}</div>
+              <div className="min-w-0 flex-1 text-left">
+                <h3 className="font-bold text-[#1A1A1A]">{angle.title}</h3>
+                <p className="mt-1 text-sm leading-6 text-[#6B6B6B]">{angle.description}</p>
+              </div>
+              <span className="shrink-0 rounded-full bg-white/70 px-3 py-1 text-sm font-semibold text-[#1A1A1A]">
+                {selected ? '已选择 ✓' : '选择 →'}
+              </span>
+            </motion.button>
+          );
+        })}
+      </div>
+      <section className="rounded-[20px] border-2 border-dashed border-[#E8E4DE] bg-white/70 p-4">
+        <p className="font-bold text-[#1A1A1A]">我想自定义一个角度</p>
+        <p className="mt-1 text-sm leading-6 text-[#6B6B6B]">
+          如果以上角度都不合适，可以写下你的判断，系统会按你的方向生成。
+        </p>
+        <div className="mt-3 grid gap-3">
+          <input
+            value={customTitle}
+            onChange={(event) => setCustomTitle(event.target.value)}
+            placeholder="例如：为什么韩国人对租房押金这么敏感？"
+            className="mac-input"
+          />
+          <textarea
+            value={customDescription}
+            onChange={(event) => setCustomDescription(event.target.value)}
+            placeholder="补充你的看法：想从哪个生活场景、矛盾点或评论区争议切入？"
+            rows={3}
+            className="mac-textarea !min-h-[96px]"
+          />
+          <button
+            type="button"
+            onClick={submitCustomAngle}
+            disabled={!customTitle.trim()}
+            className="mac-secondary-btn"
+          >
+            加入我的角度
+          </button>
+        </div>
+      </section>
+      <div className="flex flex-col gap-3 border-t border-[#E8E4DE] pt-5 sm:flex-row">
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={selectedAngleId === null || loading !== null}
+          className="mac-primary-btn flex-1"
+        >
+          {loading === 'generate' ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              生成中...
+            </>
+          ) : (
+            <>🚀 生成内容</>
+          )}
+        </button>
+        <button type="button" className="mac-text-btn">
+          ← 返回重新选择
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+function GeneratingState() {
+  const steps = ['📝 构思标题', '📄 撰写正文', '💬 模拟对话'];
+  return (
+    <motion.div
+      key="generating"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      className="flex min-h-[560px] flex-col justify-center"
+    >
+      <p className="mac-kicker text-center">Generating</p>
+      <h2 className="mt-2 text-center text-2xl font-bold text-[#1A1A1A]">正在把角度写成真实帖子</h2>
+      <div className="mx-auto mt-8 h-3 w-full max-w-[420px] overflow-hidden rounded-full bg-[#F5F0E8]">
+        <motion.div
+          initial={{ width: '8%' }}
+          animate={{ width: ['18%', '52%', '84%'] }}
+          transition={{ duration: 1.6, repeat: Infinity, repeatType: 'reverse' }}
+          className="h-full rounded-full bg-[#1A1A1A]"
+        />
+      </div>
+      <div className="mx-auto mt-8 grid w-full max-w-[420px] gap-3">
+        {steps.map((step, index) => (
+          <motion.div
+            key={step}
+            initial={{ opacity: 0.35 }}
+            animate={{ opacity: [0.35, 1, 0.35] }}
+            transition={{ duration: 1.2, delay: index * 0.25, repeat: Infinity }}
+            className="flex items-center justify-between rounded-[20px] bg-white px-4 py-3 shadow-[0_4px_20px_rgba(0,0,0,0.04)]"
+          >
+            <span className="font-semibold text-[#1A1A1A]">{step}</span>
+            <CheckCircle2 className="h-5 w-5 text-[#6B6B6B]" />
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
+function EditableText({
+  value,
+  multiline,
+  placeholder,
+  className,
+  onChange,
+}: {
+  value: string;
+  multiline?: boolean;
+  placeholder: string;
+  className?: string;
+  onChange: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  function commit() {
+    setEditing(false);
+    if (draft !== value) onChange(draft);
+  }
+
+  function beginEdit() {
+    setDraft(value);
+    setEditing(true);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  if (editing && multiline) {
+    return (
+      <textarea
+        ref={(element) => {
+          inputRef.current = element;
+        }}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        rows={8}
+        className={`mac-editable is-editing min-h-[170px] resize-y ${className || ''}`}
+      />
+    );
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={(element) => {
+          inputRef.current = element;
+        }}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit();
+          }
+        }}
+        className={`mac-editable is-editing ${className || ''}`}
+      />
+    );
+  }
+
+  return (
+    <button type="button" onClick={beginEdit} className="mac-editable">
+      <span className={`block whitespace-pre-wrap text-left ${className || ''}`}>
+        {value || <span className="text-[#6B6B6B]">{placeholder}</span>}
+      </span>
+    </button>
+  );
+}
+
+function RevisionBox({
+  title = '修改方向',
+  placeholder,
+  loading,
+  onRevise,
+}: {
+  title?: string;
+  placeholder: string;
+  loading: boolean;
+  onRevise: (instruction: string) => Promise<boolean>;
+}) {
+  const [instruction, setInstruction] = useState('');
+
+  return (
+    <section className="rounded-[22px] bg-[#F5F0E8] p-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <label className="mac-label !mb-0">{title}</label>
+        {instruction.trim() && (
+          <button type="button" onClick={() => setInstruction('')} className="mac-clear-btn">
+            一键清空
+          </button>
+        )}
+      </div>
+      <textarea
+        value={instruction}
+        onChange={(event) => setInstruction(event.target.value)}
+        rows={4}
+        placeholder={placeholder}
+        className="mac-textarea !min-h-[112px] !bg-white"
+      />
+      <button
+        type="button"
+        onClick={async () => {
+          const ok = await onRevise(instruction);
+          if (ok) setInstruction('');
+        }}
+        disabled={loading || !instruction.trim()}
+        className="mac-primary-btn mt-3 w-full"
+      >
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+        按方向修改
+      </button>
+    </section>
+  );
+}
+
+function isHostedRuntime() {
+  if (typeof window === 'undefined') return false;
+  return !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+}
+
+function loadAppPassword() {
+  try {
+    return localStorage.getItem(APP_PASSWORD_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
+  const [value, setValue] = useState('');
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#D4E8E0] p-5">
+      <div className="w-full max-w-[420px] rounded-[28px] bg-white p-7 shadow-[0_24px_70px_rgba(26,26,26,0.12)]">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#F5F0E8]">
+          <User className="h-6 w-6 text-[#1A1A1A]" />
+        </div>
+        <h1 className="text-center text-2xl font-black text-[#1A1A1A]">输入访问密码</h1>
+        <p className="mt-3 text-center text-sm leading-6 text-[#6B6B6B]">
+          这是云端版本的个人访问保护。密码会保存在当前浏览器里，下次打开不用重复输入。
+        </p>
+        <form
+          className="mt-6 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const password = value.trim();
+            if (!password) return;
+            onUnlock(password);
+          }}
+        >
+          <input
+            type="password"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder="请输入你在 Vercel 配置的 APP_PASSWORD"
+            className="mac-input"
+            autoFocus
+          />
+          <button type="submit" className="mac-primary-btn w-full">
+            进入应用
+          </button>
+        </form>
+        <p className="mt-4 text-xs leading-5 text-[#6B6B6B]">
+          如果密码不对，生成内容时会提示 401；重新输入正确密码即可。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function OutputResult({
+  result,
+  factCheckStatuses,
+  polishChanges,
+  polishingField,
+  revisingContent,
+  chatLoading,
+  rowLoadingIndex,
+  canRestorePost,
+  onBack,
+  onCopy,
+  onTitleChange,
+  onPostChange,
+  onRestorePost,
+  onChatChange,
+  onPolishField,
+  onReviseContent,
+  onRegenerateChat,
+  onContinueChat,
+  onRegenerateChatRow,
+  onMarkFactCheck,
+  onSave,
+}: {
+  result: GenerationResult;
+  factCheckStatuses: Record<number, FactCheckStatus>;
+  polishChanges: string[];
+  polishingField: 'title' | 'post' | null;
+  revisingContent: boolean;
+  chatLoading: boolean;
+  rowLoadingIndex: number | null;
+  canRestorePost: boolean;
+  onBack: () => void;
+  onCopy: (text: string) => void;
+  onTitleChange: (value: string) => void;
+  onPostChange: (value: string) => void;
+  onRestorePost: () => void;
+  onChatChange: (rows: ChatRow[]) => void;
+  onPolishField: (field: 'title' | 'post') => void;
+  onReviseContent: (instruction: string) => Promise<boolean>;
+  onRegenerateChat: (instruction?: string) => Promise<boolean>;
+  onContinueChat: (instruction?: string) => Promise<boolean>;
+  onRegenerateChatRow: (index: number, instruction?: string) => Promise<boolean>;
+  onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
+  onSave: () => void;
+}) {
+  const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean);
+  const tagText = cleanTags.map((tag) => `#${tag}`).join(' ');
+  const postCopyText = [result.post, tagText].filter(Boolean).join('\n\n');
+
+  return (
+    <motion.div
+      key="result"
+      initial={{ opacity: 0, x: 18 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -18 }}
+      className="space-y-4"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="mac-kicker">Publish draft</p>
+          <h2 className="mt-1 text-2xl font-bold text-[#1A1A1A]">内容已生成</h2>
+        </div>
+        <button type="button" onClick={onBack} className="mac-text-btn">
+          <ArrowLeft className="h-4 w-4" />
+          返回重新选择角度
+        </button>
+      </div>
+
+      <section className="mac-result-card">
+        <header className="mac-result-header">
+          <span>🏷️ 标题</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => onCopy(result.title)} className="mac-mini-btn">
+              <Copy className="h-3.5 w-3.5" /> 复制
+            </button>
+            <button type="button" onClick={() => onPolishField('title')} className="mac-mini-btn" disabled={polishingField !== null}>
+              {polishingField === 'title' ? '润色中...' : '✨ 润色'}
+            </button>
+            <button type="button" onClick={() => onPolishField('title')} className="mac-mini-btn">
+              <RefreshCw className="h-3.5 w-3.5" /> 重来
+            </button>
+          </div>
+        </header>
+        <EditableText
+          value={result.title}
+          onChange={onTitleChange}
+          placeholder="点击编辑标题..."
+          className="text-xl font-bold text-[#1A1A1A]"
+        />
+      </section>
+
+      <section className="mac-result-card">
+        <header className="mac-result-header">
+          <span>📄 正文</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => onCopy(postCopyText)} className="mac-mini-btn">
+              <Copy className="h-3.5 w-3.5" /> 复制
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onCopy(postCopyText);
+                window.open('http://www.ju1.cn/', '_blank', 'noopener,noreferrer');
+              }}
+              className="mac-mini-btn"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> 句易网检测
+            </button>
+            <button type="button" onClick={() => onPolishField('post')} className="mac-mini-btn" disabled={polishingField !== null}>
+              {polishingField === 'post' ? '润色中...' : '✨ 润色'}
+            </button>
+            <button type="button" onClick={onRestorePost} className="mac-mini-btn" disabled={!canRestorePost}>
+              <ArrowLeft className="h-3.5 w-3.5" /> 恢复上一版
+            </button>
+          </div>
+        </header>
+        <EditableText
+          value={result.post}
+          multiline
+          onChange={onPostChange}
+          placeholder="点击编辑正文..."
+          className="text-[15px] leading-[1.75] text-[#1A1A1A]"
+        />
+        {cleanTags.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2 rounded-[18px] bg-[#F5F0E8] p-3">
+            {cleanTags.map((tag) => (
+              <span key={tag} className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#1A1A1A]">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[#E8E4DE] pt-4">
+          <span className="rounded-full bg-[#C9EBCA] px-3 py-1 text-xs font-semibold text-[#1A1A1A]">
+            {result.post.trim().length} / 300 字
+          </span>
+          <span className="text-sm text-[#6B6B6B]">🔍 事实核查</span>
+        </div>
+        <FactCheckPanel
+          items={(result.factChecks || []) as FactCheckItem[]}
+          statuses={factCheckStatuses}
+          onMark={onMarkFactCheck}
+        />
+        {polishChanges.length > 0 && (
+          <div className="mt-4 rounded-[18px] bg-[#F5E6D0] p-3">
+            <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#6B6B6B]">润色修改点</p>
+            <ul className="space-y-1 text-sm leading-6 text-[#1A1A1A]">
+              {polishChanges.map((change, index) => (
+                <li key={`${change}-${index}`}>• {change}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      <RevisionBox
+        loading={revisingContent}
+        placeholder="例如：方向改成韩国人熬夜不是自律，而是社会压力；开头更像真人吐槽；增加一点我自己的经历；结尾引导评论区讨论。"
+        onRevise={onReviseContent}
+      />
+
+      <ChatResult
+        rows={result.chat}
+        loading={chatLoading}
+        rowLoadingIndex={rowLoadingIndex}
+        onChange={onChatChange}
+        onCopy={onCopy}
+        onRegenerate={onRegenerateChat}
+        onContinue={onContinueChat}
+        onRegenerateRow={onRegenerateChatRow}
+      />
+
+      <footer className="flex flex-col gap-3 pt-2 sm:flex-row">
+        <button type="button" onClick={onBack} className="mac-secondary-btn flex-1">
+          ← 返回重新选择角度
+        </button>
+        <button type="button" onClick={onSave} className="mac-primary-btn flex-1">
+          <Save className="h-4 w-4" />
+          保存到历史记录
+        </button>
+      </footer>
+    </motion.div>
+  );
+}
+
+function ChatResult({
+  rows,
+  loading,
+  rowLoadingIndex,
+  onChange,
+  onCopy,
+  onRegenerate,
+  onContinue,
+  onRegenerateRow,
+}: {
+  rows: ChatRow[];
+  loading: boolean;
+  rowLoadingIndex: number | null;
+  onChange: (rows: ChatRow[]) => void;
+  onCopy: (text: string) => void;
+  onRegenerate: (instruction?: string) => Promise<boolean>;
+  onContinue: (instruction?: string) => Promise<boolean>;
+  onRegenerateRow: (index: number, instruction?: string) => Promise<boolean>;
+}) {
+  const [chatInstruction, setChatInstruction] = useState('');
+
+  if (!rows?.length) return null;
+
+  function update(index: number, key: keyof ChatRow, value: string) {
+    onChange(rows.map((row, idx) => (idx === index ? { ...row, [key]: value } : row)));
+  }
+  function deleteRow(index: number) {
+    onChange(rows.filter((_, idx) => idx !== index));
+  }
+
+  return (
+    <section className="mac-result-card">
+      <header className="mac-result-header">
+        <span>💬 聊天记录</span>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await onRegenerate(chatInstruction);
+              if (ok) setChatInstruction('');
+            }}
+            className="mac-mini-btn"
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            重生成
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await onContinue(chatInstruction);
+              if (ok) setChatInstruction('');
+            }}
+            className="mac-mini-btn"
+            disabled={loading}
+          >
+            {loading ? '处理中...' : '按建议重写聊天'}
+          </button>
+          <button
+            type="button"
+            onClick={() => onCopy(rows.map((row) => `${row.target}\t${row.foreign}\t${row.chinese}`).join('\n'))}
+            className="mac-mini-btn"
+          >
+            <Copy className="h-3.5 w-3.5" /> 复制表格
+          </button>
+        </div>
+      </header>
+      <div className="mac-chat-table-wrap">
+        <table className="mac-chat-table">
+          <thead>
+            <tr>
+              <th>对象</th>
+              <th>外语</th>
+              <th>中文</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                <td>
+                  <input
+                    value={row.target}
+                    onChange={(event) => update(index, 'target', event.target.value)}
+                    className="mac-table-input font-bold"
+                  />
+                </td>
+                <td>
+                  <textarea
+                    value={row.foreign}
+                    onChange={(event) => update(index, 'foreign', event.target.value)}
+                    rows={2}
+                    className="mac-table-input min-h-[58px] resize-y"
+                  />
+                </td>
+                <td>
+                  <textarea
+                    value={row.chinese}
+                    onChange={(event) => update(index, 'chinese', event.target.value)}
+                    rows={2}
+                    className="mac-table-input min-h-[58px] resize-y"
+                  />
+                </td>
+                <td>
+                  <div className="flex min-w-[108px] flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await onRegenerateRow(index, chatInstruction);
+                        if (ok) setChatInstruction('');
+                      }}
+                      disabled={loading || rowLoadingIndex !== null}
+                      className="mac-row-action-btn"
+                    >
+                      {rowLoadingIndex === index ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                      重生成本行
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteRow(index)}
+                      disabled={loading || rowLoadingIndex !== null || rows.length <= 1}
+                      className="mac-row-action-btn danger"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      删除
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-[#6B6B6B]">
+        修改任意单元格后，也可以在下方写清楚你想要的方向，系统会结合正文、已改聊天和建议重写后续内容。
+      </p>
+      <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <label className="mac-label !mb-0">聊天记录修改建议</label>
+          {chatInstruction.trim() && (
+            <button type="button" onClick={() => setChatInstruction('')} className="mac-clear-btn">
+              一键清空
+            </button>
+          )}
+        </div>
+        <textarea
+          value={chatInstruction}
+          onChange={(event) => setChatInstruction(event.target.value)}
+          rows={3}
+          placeholder="例如：前半段改成巴西朋友先反问我为什么会这样想，后面多聊真实生活感受，不要像科普；或者：保留前3行，后面围绕我修改的观点继续追问。"
+          className="mac-textarea !min-h-[96px] !bg-white"
+        />
+        <button
+          type="button"
+          onClick={async () => {
+            const ok = await onContinue(chatInstruction);
+            if (ok) setChatInstruction('');
+          }}
+          disabled={loading || rowLoadingIndex !== null}
+          className="mac-primary-btn mt-3 w-full"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          按修改建议生成
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function DynamicCard({
+  stage,
+  angles,
+  selectedAngleId,
+  loading,
+  result,
+  factCheckStatuses,
+  polishChanges,
+  polishingField,
+  revisingContent,
+  chatLoading,
+  rowLoadingIndex,
+  canRestorePost,
+  onSelectAngle,
+  onGenerate,
+  onAddCustomAngle,
+  onBack,
+  onCopy,
+  onTitleChange,
+  onPostChange,
+  onRestorePost,
+  onChatChange,
+  onPolishField,
+  onReviseContent,
+  onRegenerateChat,
+  onContinueChat,
+  onRegenerateChatRow,
+  onMarkFactCheck,
+  onSave,
+}: {
+  stage: Stage;
+  angles: Angle[];
+  selectedAngleId: number | null;
+  loading: 'analyze' | 'generate' | null;
+  result: GenerationResult;
+  factCheckStatuses: Record<number, FactCheckStatus>;
+  polishChanges: string[];
+  polishingField: 'title' | 'post' | null;
+  revisingContent: boolean;
+  chatLoading: boolean;
+  rowLoadingIndex: number | null;
+  canRestorePost: boolean;
+  onSelectAngle: (id: number) => void;
+  onGenerate: () => void;
+  onAddCustomAngle: (angle: Angle) => void;
+  onBack: () => void;
+  onCopy: (text: string) => void;
+  onTitleChange: (value: string) => void;
+  onPostChange: (value: string) => void;
+  onRestorePost: () => void;
+  onChatChange: (rows: ChatRow[]) => void;
+  onPolishField: (field: 'title' | 'post') => void;
+  onReviseContent: (instruction: string) => Promise<boolean>;
+  onRegenerateChat: (instruction?: string) => Promise<boolean>;
+  onContinueChat: (instruction?: string) => Promise<boolean>;
+  onRegenerateChatRow: (index: number, instruction?: string) => Promise<boolean>;
+  onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
+  onSave: () => void;
+}) {
+  return (
+    <section className="mac-card mac-dynamic-card">
+      <AnimatePresence mode="wait">
+        {stage === 'empty' && <EmptyState />}
+        {stage === 'angles' && (
+          <AngleSelection
+            angles={angles}
+            selectedAngleId={selectedAngleId}
+            loading={loading}
+            onSelectAngle={onSelectAngle}
+            onAddCustomAngle={onAddCustomAngle}
+            onGenerate={onGenerate}
+          />
+        )}
+        {stage === 'generating' && <GeneratingState />}
+        {stage === 'result' && (
+          <OutputResult
+            result={result}
+            factCheckStatuses={factCheckStatuses}
+            polishChanges={polishChanges}
+            polishingField={polishingField}
+            revisingContent={revisingContent}
+            chatLoading={chatLoading}
+            rowLoadingIndex={rowLoadingIndex}
+            canRestorePost={canRestorePost}
+            onBack={onBack}
+            onCopy={onCopy}
+            onTitleChange={onTitleChange}
+            onPostChange={onPostChange}
+            onRestorePost={onRestorePost}
+            onChatChange={onChatChange}
+            onPolishField={onPolishField}
+            onReviseContent={onReviseContent}
+            onRegenerateChat={onRegenerateChat}
+            onContinueChat={onContinueChat}
+            onRegenerateChatRow={onRegenerateChatRow}
+            onMarkFactCheck={onMarkFactCheck}
+            onSave={onSave}
+          />
+        )}
+      </AnimatePresence>
+    </section>
+  );
+}
+
+function countVisibleText(text: string) {
+  return String(text || '').replace(/[\s\p{P}\p{S}]/gu, '').length;
+}
+
+function AppRecommendationView({
+  topic,
+  material,
+  result,
+  loading,
+  revising,
+  error,
+  onTopicChange,
+  onMaterialChange,
+  onResultChange,
+  onGenerate,
+  onRevise,
+  onClear,
+  onCopy,
+}: {
+  topic: string;
+  material: string;
+  result: AppRecommendationResult | null;
+  loading: boolean;
+  revising: boolean;
+  error: string;
+  onTopicChange: (value: string) => void;
+  onMaterialChange: (value: string) => void;
+  onResultChange: (value: AppRecommendationResult) => void;
+  onGenerate: () => void;
+  onRevise: (instruction: string) => Promise<boolean>;
+  onClear: () => void;
+  onCopy: (text: string) => void;
+}) {
+  const tagsText = result?.tags.join(' ') || '';
+  const fullPostText = result ? [result.title, '', result.post, '', tagsText].join('\n') : '';
+  const forbiddenHits = result?.forbiddenHits || [];
+
+  function updateResult(patch: Partial<AppRecommendationResult>) {
+    if (!result) return;
+    onResultChange({ ...result, ...patch });
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mac-card p-6"
+    >
+      <div className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
+        <aside className="space-y-5 xl:sticky xl:top-4 xl:self-start">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="mac-kicker">App share · 真人分享</p>
+              <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">小红书 · APP 真人分享贴</h1>
+              <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+                左侧写真实场景，右侧出标题、正文和标签。核心是像真人分享，不像广告。
+              </p>
+            </div>
+            <BookOpen className="h-10 w-10 shrink-0 text-[#F0B8B8]" />
+          </div>
+
+          <label className="block">
+            <span className="mb-2 flex items-center justify-between">
+              <span className="mac-label !mb-0">分享主题 / 真实场景</span>
+              {(topic.trim() || material.trim()) && (
+                <button type="button" onClick={onClear} className="mac-clear-btn">
+                  一键清空
+                </button>
+              )}
+            </span>
+            <input
+              value={topic}
+              onChange={(event) => onTopicChange(event.target.value)}
+              placeholder="例如：马上要去日本玩想学点日语"
+              className="mac-input"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mac-label">素材文档 / 参考资料</span>
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[18px] bg-[#F5F0E8] p-3">
+              <label className="mac-mini-btn cursor-pointer !bg-white">
+                <FileText className="h-3.5 w-3.5" />
+                读取素材文档
+                <input
+                  type="file"
+                  accept=".txt,.md,.csv,.json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => onMaterialChange(String(reader.result || ''));
+                    reader.readAsText(file);
+                    event.currentTarget.value = '';
+                  }}
+                />
+              </label>
+              <span className="text-xs leading-5 text-[#6B6B6B]">
+                支持 txt / md / csv / json；也可以直接粘贴素材。
+              </span>
+            </div>
+            <textarea
+              value={material}
+              onChange={(event) => onMaterialChange(event.target.value)}
+              rows={6}
+              placeholder="把 APP 素材、产品卖点、禁用表达、可参考文案粘贴在这里。LLM 会学习素材，但正文仍按真人分享语气改写，不会照搬。"
+              className="mac-textarea !min-h-[150px]"
+            />
+          </label>
+
+          <div className="rounded-[18px] bg-[#F5F0E8] p-4 text-sm leading-6 text-[#6B6B6B]">
+            固定规则：标题不超过 20 字；正文 100-220 字；结构为真实背景 + 1、2、3 分别写至少 3 个 APP 优点；HelloTalk 在前两位被提到；禁止 Tandem、YeeTalk 等同类型竞品；标签必带 #认识外国人 #找外国人聊天；标题和正文都不能出现「最 / 神器 / 推荐 / 种草 / 必备 / 安利」等违禁词。
+          </div>
+
+          {error && <p className="rounded-2xl bg-[#F5D5D5] px-4 py-2 text-sm text-[#1A1A1A]">{error}</p>}
+
+          <button type="button" onClick={onGenerate} disabled={loading} className="mac-primary-btn w-full">
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                生成中...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                生成真人分享贴
+              </>
+            )}
+          </button>
+        </aside>
+
+        <main className="min-w-0">
+          {!result && (
+            <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border-2 border-dashed border-[#E8E4DE] bg-[#FAF7F2] p-8 text-center">
+              <div>
+                <BookOpen className="mx-auto mb-4 h-10 w-10 text-[#F0B8B8]" />
+                <h2 className="text-lg font-black text-[#1A1A1A]">右侧会显示生成结果</h2>
+                <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+                  生成后只保留标题、正文和标签，方便直接编辑和复制。
+                </p>
+              </div>
+            </div>
+          )}
+
+          {result && (
+            <div className="space-y-4">
+          {forbiddenHits.length > 0 && (
+            <div className="rounded-2xl bg-[#F5D5D5] px-4 py-3 text-sm leading-6 text-[#1A1A1A]">
+              ⚠️ 检测到违禁词：{forbiddenHits.join('、')}。我已尽量回避，但仍出现在标题或正文里，请手动改写后再发。
+            </div>
+          )}
+
+          <section className="mac-result-card">
+            <header className="mac-result-header">
+              <span>🏷️ 标题</span>
+              <div className="flex gap-2">
+                <span className="rounded-full bg-[#F5F0E8] px-3 py-1 text-xs font-semibold text-[#6B6B6B]">
+                  {result.title.length} / 20 字
+                </span>
+                <button type="button" onClick={() => onCopy(result.title)} className="mac-mini-btn">
+                  <Copy className="h-3.5 w-3.5" /> 复制
+                </button>
+              </div>
+            </header>
+            <input
+              value={result.title}
+              onChange={(event) => updateResult({ title: event.target.value.slice(0, 20) })}
+              className="mac-input !bg-white text-xl font-bold"
+            />
+          </section>
+
+          <section className="mac-result-card">
+            <header className="mac-result-header">
+              <span>📄 正文贴文</span>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full bg-[#C9EBCA] px-3 py-1 text-xs font-semibold text-[#1A1A1A]">
+                  {countVisibleText(result.post)} 字
+                </span>
+                <button type="button" onClick={() => onCopy([result.post, tagsText].join('\n\n'))} className="mac-mini-btn">
+                  <Copy className="h-3.5 w-3.5" /> 复制正文+标签
+                </button>
+                <button type="button" onClick={() => onCopy(fullPostText)} className="mac-mini-btn">
+                  <Copy className="h-3.5 w-3.5" /> 复制全部
+                </button>
+              </div>
+            </header>
+            <textarea
+              value={result.post}
+              onChange={(event) => updateResult({ post: event.target.value })}
+              rows={10}
+              className="mac-textarea !min-h-[220px] !bg-white"
+            />
+            <div className="mt-4 flex flex-wrap gap-2 rounded-[18px] bg-[#F5F0E8] p-3">
+              {result.tags.map((tag) => (
+                <span key={tag} className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#1A1A1A]">
+                  {tag}
+                </span>
+              ))}
+            </div>
+            <label className="mt-3 block">
+              <span className="mac-label">标签（用空格分隔，至少含 #认识外国人 #找外国人聊天）</span>
+              <input
+                value={tagsText}
+                onChange={(event) =>
+                  updateResult({
+                    tags: event.target.value
+                      .split(/\s+/)
+                      .map((tag) => tag.trim())
+                      .filter(Boolean)
+                      .map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)),
+                  })
+                }
+                className="mac-input !bg-white"
+              />
+            </label>
+          </section>
+          <RevisionBox
+            loading={revising}
+            placeholder="例如：开头加一点我马上去日本玩的真实背景；不要像广告；语气更像朋友分享；多写为什么我会想用这个APP。"
+            onRevise={onRevise}
+          />
+            </div>
+          )}
+        </main>
+      </div>
+    </motion.section>
+  );
+}
+
+function ChatLabView({
+  country,
+  platform,
+  title,
+  post,
+  rows,
+  loading,
+  rowLoadingIndex,
+  instruction,
+  error,
+  onCountryChange,
+  onPlatformChange,
+  onTitleChange,
+  onPostChange,
+  onInstructionChange,
+  onClearPost,
+  onChange,
+  onCopy,
+  onGenerate,
+  onContinue,
+  onRegenerateRow,
+}: {
+  country: Country;
+  platform: Platform;
+  title: string;
+  post: string;
+  rows: ChatRow[];
+  loading: boolean;
+  rowLoadingIndex: number | null;
+  instruction: string;
+  error: string;
+  onCountryChange: (value: Country) => void;
+  onPlatformChange: (value: Platform) => void;
+  onTitleChange: (value: string) => void;
+  onPostChange: (value: string) => void;
+  onInstructionChange: (value: string) => void;
+  onClearPost: () => void;
+  onChange: (rows: ChatRow[]) => void;
+  onCopy: (text: string) => void;
+  onGenerate: () => Promise<boolean>;
+  onContinue: () => Promise<boolean>;
+  onRegenerateRow: (index: number) => Promise<boolean>;
+}) {
+  function update(index: number, key: keyof ChatRow, value: string) {
+    onChange(rows.map((row, idx) => (idx === index ? { ...row, [key]: value } : row)));
+  }
+  function deleteRow(index: number) {
+    onChange(rows.filter((_, idx) => idx !== index));
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mac-card p-6"
+    >
+      <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <aside className="space-y-5 xl:sticky xl:top-4 xl:self-start">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="mac-kicker">Chat lab</p>
+              <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">直接为正文生成聊天记录</h1>
+              <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+                左侧粘贴标题、正文和修改建议，右侧编辑聊天表格。退出文章改写流程后，也能直接补生成聊天记录。
+              </p>
+            </div>
+            <MessageCircle className="h-10 w-10 shrink-0 text-[#F0B8B8]" />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end xl:grid-cols-1">
+            <label>
+              <span className="mac-label">国家</span>
+              <select
+                value={country}
+                onChange={(event) => onCountryChange(event.target.value as Country)}
+                className="mac-select"
+              >
+                {COUNTRIES.map((item) => (
+                  <option key={item} value={item}>
+                    {flagForCountry(item)} {item} · {LANGUAGE_MAP[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div>
+              <span className="mac-label">平台</span>
+              <PlatformPills value={platform} onChange={onPlatformChange} />
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="mac-label !mb-0">输入内容</span>
+              {(title.trim() || post.trim() || instruction.trim() || rows.length > 0) && (
+                <button type="button" onClick={onClearPost} className="mac-clear-btn">
+                  一键清空全部
+                </button>
+              )}
+            </div>
+            <label>
+              <span className="mac-label">标题（可选）</span>
+              <input
+                value={title}
+                onChange={(event) => onTitleChange(event.target.value)}
+                placeholder="粘贴或输入标题，便于聊天记录贴合主题..."
+                className="mac-input"
+              />
+            </label>
+            <label>
+              <span className="mac-label">正文 *</span>
+              <textarea
+                value={post}
+                onChange={(event) => onPostChange(event.target.value)}
+                placeholder="粘贴你最终版的正文..."
+                className="mac-textarea"
+              />
+            </label>
+            <label>
+              <span className="mac-label">想要的聊天方向 / 修改建议（可选）</span>
+              <textarea
+                value={instruction}
+                onChange={(event) => onInstructionChange(event.target.value)}
+                rows={3}
+                placeholder="例如：聊天里多聊真实生活感受，不要像科普；外国朋友先反问，再分享自己的经历。"
+                className="mac-textarea !min-h-[96px]"
+              />
+            </label>
+          </div>
+
+          {error && <p className="rounded-2xl bg-[#F5D5D5] px-4 py-2 text-sm text-[#1A1A1A]">{error}</p>}
+
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={loading || rowLoadingIndex !== null}
+            className="mac-primary-btn w-full"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                生成中...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                {rows.length ? '重新生成聊天记录' : '生成聊天记录'}
+              </>
+            )}
+          </button>
+        </aside>
+
+        <main className="min-w-0">
+          {rows.length === 0 && (
+            <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border-2 border-dashed border-[#E8E4DE] bg-[#FAF7F2] p-8 text-center">
+              <div>
+                <MessageCircle className="mx-auto mb-4 h-10 w-10 text-[#F0B8B8]" />
+                <h2 className="text-lg font-black text-[#1A1A1A]">右侧会显示聊天表格</h2>
+                <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+                  生成后可以单行重生成、删除、按建议重写或复制表格。
+                </p>
+              </div>
+            </div>
+          )}
+
+          {rows.length > 0 && (
+        <section className="mac-result-card">
+          <header className="mac-result-header">
+            <span>💬 聊天记录</span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onContinue}
+                className="mac-mini-btn"
+                disabled={loading || rowLoadingIndex !== null}
+              >
+                {loading ? '处理中...' : '按建议重写聊天'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onCopy(rows.map((row) => `${row.target}\t${row.foreign}\t${row.chinese}`).join('\n'))}
+                className="mac-mini-btn"
+              >
+                <Copy className="h-3.5 w-3.5" /> 复制表格
+              </button>
+            </div>
+          </header>
+          <div className="mac-chat-table-wrap">
+            <table className="mac-chat-table">
+              <thead>
+                <tr>
+                  <th>对象</th>
+                  <th>外语</th>
+                  <th>中文</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={index}>
+                    <td>
+                      <input
+                        value={row.target}
+                        onChange={(event) => update(index, 'target', event.target.value)}
+                        className="mac-table-input font-bold"
+                      />
+                    </td>
+                    <td>
+                      <textarea
+                        value={row.foreign}
+                        onChange={(event) => update(index, 'foreign', event.target.value)}
+                        rows={2}
+                        className="mac-table-input min-h-[58px] resize-y"
+                      />
+                    </td>
+                    <td>
+                      <textarea
+                        value={row.chinese}
+                        onChange={(event) => update(index, 'chinese', event.target.value)}
+                        rows={2}
+                        className="mac-table-input min-h-[58px] resize-y"
+                      />
+                    </td>
+                    <td>
+                      <div className="flex min-w-[108px] flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onRegenerateRow(index)}
+                          disabled={loading || rowLoadingIndex !== null}
+                          className="mac-row-action-btn"
+                        >
+                          {rowLoadingIndex === index ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          重生成本行
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteRow(index)}
+                          disabled={loading || rowLoadingIndex !== null || rows.length <= 1}
+                          className="mac-row-action-btn danger"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          删除
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-[#6B6B6B]">
+            修改正文或聊天方向后，点击“按建议重写聊天”会根据最新正文重新生成整份聊天记录，不会只把新增内容追加到尾部。
+          </p>
+            </section>
+          )}
+        </main>
+      </div>
+    </motion.section>
+  );
+}
+
+function MobileBottomNav({
+  active,
+  onTabChange,
+  onHistory,
+}: {
+  active: AppTab;
+  onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
+  onHistory: () => void;
+}) {
+  const items = [
+    ...tabs,
+    { key: 'history' as const, label: '历史', icon: History },
+  ];
+  return (
+    <nav className="mac-mobile-nav">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => (item.key === 'history' ? onHistory() : onTabChange(item.key))}
+            className={active === item.key ? 'is-active' : ''}
+          >
+            <Icon className="h-5 w-5" />
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+export default function AppShell() {
+  const [active, setActive] = useState<AppTab>('article');
+  const [article, setArticle] = useState('');
+  const [topic, setTopic] = useState('');
+  const [country, setCountry] = useState<Country>('韩国');
+  const [platform, setPlatform] = useState<Platform>('小红书');
+  const [angles, setAngles] = useState<Angle[]>([]);
+  const [selectedAngleId, setSelectedAngleId] = useState<number | null>(null);
+  const [result, setResult] = useState<GenerationResult>(emptyResult);
+  const [factCheckStatuses, setFactCheckStatuses] = useState<Record<number, FactCheckStatus>>({});
+  const [loading, setLoading] = useState<'analyze' | 'generate' | null>(null);
+  const [polishingField, setPolishingField] = useState<'title' | 'post' | null>(null);
+  const [revisingContent, setRevisingContent] = useState(false);
+  const [polishChanges, setPolishChanges] = useState<string[]>([]);
+  const [postHistory, setPostHistory] = useState<string[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [rowLoadingIndex, setRowLoadingIndex] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [config, setConfig] = useState(() => loadConfig());
+  const [toast, setToast] = useState('');
+  const [error, setError] = useState('');
+  const [autoAnalyze, setAutoAnalyze] = useState(false);
+  const [appPassword, setAppPassword] = useState(() => loadAppPassword());
+
+  // Chat Lab (standalone chat-only workspace) state
+  const [chatLabTitle, setChatLabTitle] = useState('');
+  const [chatLabPost, setChatLabPost] = useState('');
+  const [chatLabInstruction, setChatLabInstruction] = useState('');
+  const [chatLabRows, setChatLabRows] = useState<ChatRow[]>([]);
+  const [chatLabLoading, setChatLabLoading] = useState(false);
+  const [chatLabRowLoadingIndex, setChatLabRowLoadingIndex] = useState<number | null>(null);
+  const [chatLabError, setChatLabError] = useState('');
+
+  // APP recommendation workspace state
+  const [appTopic, setAppTopic] = useState('');
+  const [appMaterial, setAppMaterial] = useState('');
+  const [appResult, setAppResult] = useState<AppRecommendationResult | null>(null);
+  const [appLoading, setAppLoading] = useState(false);
+  const [appRevising, setAppRevising] = useState(false);
+  const [appError, setAppError] = useState('');
+
+  const history = useHistory();
+  const viralExamples = useMemo(() => loadViralLibrary(), []);
+  const combinedViralExamples = useMemo(
+    () => [BUILT_IN_VIRAL_EXAMPLES.trim(), viralExamples.trim()].filter(Boolean).join('\n\n'),
+    [viralExamples],
+  );
+  const selectedAngle = angles.find((angle) => angle.id === selectedAngleId) || null;
+  const scene: Scene = active === 'topic' ? 'topic' : 'article';
+  const hasResult = !!result.title || !!result.post || (result.chat && result.chat.length > 0);
+  const stage: Stage = loading === 'generate' ? 'generating' : hasResult ? 'result' : angles.length > 0 ? 'angles' : 'empty';
+
+  function showToast(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(''), 2000);
+  }
+
+  function handleUnlock(password: string) {
+    try {
+      localStorage.setItem(APP_PASSWORD_KEY, password);
+    } catch {
+      // 忽略本地存储失败，仍允许本次会话继续使用
+    }
+    setAppPassword(password);
+    showToast('访问密码已保存');
+  }
+
+  function resetWork() {
+    setAngles([]);
+    setSelectedAngleId(null);
+    setResult(emptyResult);
+    setFactCheckStatuses({});
+    setPolishChanges([]);
+    setPostHistory([]);
+    setError('');
+  }
+
+  function handleAddCustomAngle(angle: Angle) {
+    setAngles((prev) => [...prev, angle]);
+    setSelectedAngleId(angle.id);
+    showToast('已加入你的自定义角度');
+  }
+
+  function handleTabChange(tab: Exclude<AppTab, 'history'>) {
+    setActive(tab);
+    if (tab === 'article' || tab === 'topic') resetWork();
+  }
+
+  async function handleAnalyze() {
+    if (active !== 'article' && active !== 'topic') return;
+    setError('');
+    setResult(emptyResult);
+    setFactCheckStatuses({});
+
+    if (active === 'article' && !article.trim()) {
+      setError('请先粘贴原文。');
+      showToast('请先粘贴原文');
+      return;
+    }
+    if (active === 'topic' && !topic.trim()) {
+      setError('请先输入话题。');
+      showToast('请先输入话题');
+      return;
+    }
+
+    setLoading('analyze');
+    try {
+      const viralSkill = buildViralSkillContext(
+        combinedViralExamples,
+        active === 'article' ? article : topic,
+      );
+      const nextAngles =
+        active === 'article'
+          ? await analyzeArticle({ config, article, country, platform, viralSkill })
+          : await analyzeTopic({ config, topic, country, platform, viralSkill });
+      setAngles(nextAngles);
+      setSelectedAngleId(nextAngles[0]?.id ?? null);
+      if (nextAngles.length === 0) showToast('没有解析出可用角度');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '分析失败，请稍后重试。';
+      setError(message);
+      showToast(message);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleGenerate() {
+    if (!selectedAngle) {
+      showToast('请先选择一个角度');
+      return;
+    }
+    if (active !== 'article' && active !== 'topic') return;
+
+    setError('');
+    setLoading('generate');
+    try {
+      const query =
+        active === 'article'
+          ? `${article}\n${selectedAngle.title}\n${selectedAngle.description}`
+          : `${topic}\n${selectedAngle.title}\n${selectedAngle.description}`;
+      const viralSkill = buildViralSkillContext(combinedViralExamples, query);
+      const nextResult =
+        active === 'article'
+          ? await generateFromArticle({
+              config,
+              article,
+              angle: selectedAngle,
+              country,
+              platform,
+              viralSkill,
+            })
+          : await generateFromTopic({
+              config,
+              topic,
+              angle: selectedAngle,
+              country,
+              platform,
+              viralSkill,
+            });
+      setResult(nextResult);
+      setFactCheckStatuses({});
+      setPostHistory([]);
+      history.add({
+        country,
+        topic,
+        article,
+        platform,
+        angle: selectedAngle.title,
+        scene,
+        title: nextResult.title,
+        post: nextResult.post,
+        tags: nextResult.tags,
+        chat: nextResult.chat,
+        factChecks: nextResult.factChecks,
+      });
+      showToast('已生成并自动保存');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '生成失败，请稍后重试。';
+      setError(message);
+      showToast(message);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  function handleCopy(text: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast('已复制 ✓');
+  }
+
+  function rememberPostVersion(currentPost: string) {
+    if (!currentPost.trim()) return;
+    setPostHistory((prev) => {
+      if (prev[prev.length - 1] === currentPost) return prev;
+      return [...prev, currentPost].slice(-20);
+    });
+  }
+
+  function handlePostChange(value: string) {
+    if (value === result.post) return;
+    rememberPostVersion(result.post);
+    setResult((prev) => ({ ...prev, post: value }));
+  }
+
+  function handleRestorePost() {
+    setPostHistory((prev) => {
+      const previous = prev[prev.length - 1];
+      if (!previous) return prev;
+      setResult((current) => ({ ...current, post: previous }));
+      showToast('已恢复正文上一版');
+      return prev.slice(0, -1);
+    });
+  }
+
+  async function handlePolishField(field: 'title' | 'post') {
+    const original = result[field];
+    if (!original.trim()) return;
+    if (field === 'post') rememberPostVersion(original);
+    setPolishingField(field);
+    try {
+      const { polished, changes } = await polishText({
+        config,
+        original,
+        context:
+          field === 'title'
+            ? '标题：不是一味更短，而是精准抓住重点、文化差异冲突点或具体疑问；判断用户刷到会不会愿意点进来看'
+            : '正文：尽可能简短、真人、少重复，保留核心发现和互动感；判断用户看完会不会愿意点赞或评论；保持 HelloTalk 自然提及',
+      });
+      setResult((prev) => ({ ...prev, [field]: polished }));
+      setPolishChanges(changes.length ? changes : ['模型已优化表达，但未返回具体修改点。']);
+      showToast(changes.length ? '已润色并生成修改点' : '已润色');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '润色失败');
+    } finally {
+      setPolishingField(null);
+    }
+  }
+
+  async function handleReviseContent(instruction: string) {
+    const value = instruction.trim();
+    if (!value) {
+      showToast('请先填写修改方向');
+      return false;
+    }
+    if (!result.title.trim() && !result.post.trim()) {
+      showToast('请先生成内容');
+      return false;
+    }
+    setRevisingContent(true);
+    try {
+      const next = await reviseGeneratedContent({
+        config,
+        mode: 'viral',
+        title: result.title,
+        post: result.post,
+        tags: result.tags,
+        instruction: value,
+        country,
+        platform,
+        angle: selectedAngle?.title,
+        sourceContext: active === 'article' ? article : topic,
+      });
+      rememberPostVersion(result.post);
+      setResult((prev) => ({
+        ...prev,
+        title: next.title,
+        post: next.post,
+        tags: next.tags,
+        factChecks: next.factChecks || prev.factChecks,
+      }));
+      if (next.factChecks) setFactCheckStatuses({});
+      setPolishChanges(next.changes?.length ? next.changes : ['已按你的修改方向调整标题、正文和标签。']);
+      showToast('已按修改方向生成新版本');
+      return true;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '按方向修改失败');
+      return false;
+    } finally {
+      setRevisingContent(false);
+    }
+  }
+
+  async function handleRegenerateChat(mode: 'fromPost' | 'continueFromEdited', instruction?: string) {
+    if (!result.post.trim()) {
+      showToast('请先生成或填写正文');
+      return false;
+    }
+    setChatLoading(true);
+    try {
+      const nextChat = await regenerateChat({
+        config,
+        country,
+        platform,
+        title: result.title,
+        post: result.post,
+        angle: selectedAngle?.title,
+        currentChat: result.chat,
+        instruction,
+        mode,
+      });
+      setResult((prev) => ({ ...prev, chat: nextChat }));
+      showToast(mode === 'fromPost' ? '聊天记录已根据正文和建议重生成' : '聊天记录已按你的建议重写');
+      return true;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '聊天记录重生成失败');
+      return false;
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  async function handleRegenerateChatRow(index: number, instruction?: string) {
+    if (!result.post.trim()) {
+      showToast('请先生成或填写正文');
+      return false;
+    }
+    setRowLoadingIndex(index);
+    try {
+      const nextRow = await regenerateChatRow({
+        config,
+        country,
+        platform,
+        title: result.title,
+        post: result.post,
+        angle: selectedAngle?.title,
+        currentChat: result.chat,
+        rowIndex: index,
+        instruction,
+      });
+      setResult((prev) => ({
+        ...prev,
+        chat: prev.chat.map((row, idx) => (idx === index ? nextRow : row)),
+      }));
+      showToast('已重生成这一行聊天');
+      return true;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '单行聊天重生成失败');
+      return false;
+    } finally {
+      setRowLoadingIndex(null);
+    }
+  }
+
+  async function handleChatLabGenerate(mode: 'fromPost' | 'continueFromEdited') {
+    if (!chatLabPost.trim()) {
+      setChatLabError('请先粘贴正文。');
+      showToast('请先粘贴正文');
+      return false;
+    }
+    setChatLabError('');
+    setChatLabLoading(true);
+    try {
+      const nextChat = await regenerateChat({
+        config,
+        country,
+        platform,
+        title: chatLabTitle,
+        post: chatLabPost,
+        currentChat: chatLabRows,
+        instruction: chatLabInstruction,
+        mode,
+      });
+      setChatLabRows(nextChat);
+      showToast(mode === 'fromPost' ? '聊天记录已生成' : '聊天记录已按建议重写');
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '聊天记录生成失败';
+      setChatLabError(message);
+      showToast(message);
+      return false;
+    } finally {
+      setChatLabLoading(false);
+    }
+  }
+
+  async function handleChatLabRegenerateRow(index: number) {
+    if (!chatLabPost.trim()) {
+      showToast('请先粘贴正文');
+      return false;
+    }
+    setChatLabRowLoadingIndex(index);
+    try {
+      const nextRow = await regenerateChatRow({
+        config,
+        country,
+        platform,
+        title: chatLabTitle,
+        post: chatLabPost,
+        currentChat: chatLabRows,
+        rowIndex: index,
+        instruction: chatLabInstruction,
+      });
+      setChatLabRows((prev) => prev.map((row, idx) => (idx === index ? nextRow : row)));
+      showToast('已重生成这一行聊天');
+      return true;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '单行聊天重生成失败');
+      return false;
+    } finally {
+      setChatLabRowLoadingIndex(null);
+    }
+  }
+
+  async function handleGenerateAppRecommendation() {
+    if (!appTopic.trim()) {
+      setAppError('请先输入APP推荐主题。');
+      showToast('请先输入APP推荐主题');
+      return;
+    }
+    setAppError('');
+    setAppLoading(true);
+    try {
+      const nextResult = await generateAppRecommendation({ config, topic: appTopic, material: appMaterial });
+      setAppResult(nextResult);
+      showToast('APP推荐贴已生成');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'APP推荐贴生成失败';
+      setAppError(message);
+      showToast(message);
+    } finally {
+      setAppLoading(false);
+    }
+  }
+
+  async function handleReviseAppRecommendation(instruction: string) {
+    const value = instruction.trim();
+    if (!value) {
+      showToast('请先填写修改方向');
+      return false;
+    }
+    if (!appResult) {
+      showToast('请先生成APP分享贴');
+      return false;
+    }
+    setAppRevising(true);
+    setAppError('');
+    try {
+      const next = await reviseGeneratedContent({
+        config,
+        mode: 'app',
+        title: appResult.title,
+        post: appResult.post,
+        tags: appResult.tags,
+        instruction: value,
+        sourceContext: [appTopic, appMaterial ? `素材文档：\n${appMaterial}` : ''].filter(Boolean).join('\n\n'),
+      });
+      setAppResult({
+        title: next.title,
+        post: next.post,
+        tags: next.tags,
+        forbiddenHits: next.forbiddenHits,
+      });
+      showToast('APP分享贴已按方向修改');
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'APP分享贴二次修改失败';
+      setAppError(message);
+      showToast(message);
+      return false;
+    } finally {
+      setAppRevising(false);
+    }
+  }
+
+  function handleSaveConfig(nextConfig: typeof config) {
+    setConfig(nextConfig);
+    saveConfig(nextConfig);
+    showToast('配置已保存');
+  }
+
+  function handleDeleteHistory(record: HistoryRecord) {
+    if (window.confirm('确定删除这条历史记录？')) {
+      history.remove(record.id);
+      showToast('已删除');
+    }
+  }
+
+  function handleClearHistory() {
+    if (window.confirm('确定删除全部历史？此操作不可恢复')) {
+      history.clear();
+      showToast('历史记录已清空');
+    }
+  }
+
+  function handleRegenerate(record: HistoryRecord) {
+    setActive(record.scene);
+    setCountry(record.country);
+    setPlatform(record.platform);
+    setArticle(record.article);
+    setTopic(record.topic);
+    resetWork();
+    setAutoAnalyze(true);
+    showToast('已回到创作页，正在重新分析');
+  }
+
+  async function handleResearchSearch(target: string) {
+    return researchTopic({ config, topic: target });
+  }
+
+  function handleUseResearchAngle(
+    researchTopicValue: string,
+    angleTitle: string,
+    angleDescription: string,
+  ) {
+    setActive('topic');
+    setTopic(researchTopicValue);
+    setArticle('');
+    const manualAngle: Angle = { id: 1, title: angleTitle, description: angleDescription };
+    setAngles([manualAngle]);
+    setSelectedAngleId(manualAngle.id);
+    setResult(emptyResult);
+    setFactCheckStatuses({});
+    setError('');
+    showToast('已切到话题创作，可直接生成');
+  }
+
+  function handleManualSave() {
+    if (!selectedAngle || !hasResult) return;
+    history.add({
+      country,
+      topic,
+      article,
+      platform,
+      angle: selectedAngle.title,
+      scene,
+      title: result.title,
+      post: result.post,
+      tags: result.tags,
+      chat: result.chat,
+      factChecks: result.factChecks,
+    });
+    showToast('已保存到历史记录');
+  }
+
+  useEffect(() => {
+    if (!autoAnalyze || (active !== 'article' && active !== 'topic')) return;
+    setAutoAnalyze(false);
+    window.setTimeout(() => handleAnalyze(), 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAnalyze, active]);
+
+  return (
+    <div className="mac-page-shell">
+      <AnimatePresence>{toast && <Toast message={toast} />}</AnimatePresence>
+      {isHostedRuntime() && !appPassword && <PasswordGate onUnlock={handleUnlock} />}
+      <div className="mac-app-frame">
+        <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
+        <main className="mac-main">
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} />
+          <SettingsDrawer
+            open={settingsOpen}
+            config={config}
+            onClose={() => setSettingsOpen(false)}
+            onSave={handleSaveConfig}
+          />
+
+          {active === 'history' ? (
+            <div className="mac-content-scroll">
+              <div className="mac-card p-6">
+                <HistoryPanel
+                  records={history.records}
+                  onDelete={handleDeleteHistory}
+                  onClear={handleClearHistory}
+                  onRegenerate={handleRegenerate}
+                  onCopy={handleCopy}
+                />
+              </div>
+            </div>
+          ) : active === 'research' ? (
+            <div className="mac-content-scroll">
+              <div className="mac-card p-6">
+                <ResearchView
+                  onSearch={handleResearchSearch}
+                  onUseAngle={handleUseResearchAngle}
+                  onCopy={handleCopy}
+                />
+              </div>
+            </div>
+          ) : active === 'app' ? (
+            <div className="mac-content-scroll">
+              <AppRecommendationView
+                topic={appTopic}
+                material={appMaterial}
+                result={appResult}
+                loading={appLoading}
+                revising={appRevising}
+                error={appError}
+                onTopicChange={(value) => {
+                  setAppTopic(value);
+                  setAppError('');
+                }}
+                onMaterialChange={(value) => {
+                  setAppMaterial(value);
+                  setAppError('');
+                }}
+                onResultChange={setAppResult}
+                onGenerate={handleGenerateAppRecommendation}
+                onRevise={handleReviseAppRecommendation}
+                onClear={() => {
+                  setAppTopic('');
+                  setAppMaterial('');
+                  setAppResult(null);
+                  setAppError('');
+                }}
+                onCopy={handleCopy}
+              />
+            </div>
+          ) : active === 'chat' ? (
+            <div className="mac-content-scroll">
+              <ChatLabView
+                country={country}
+                platform={platform}
+                title={chatLabTitle}
+                post={chatLabPost}
+                rows={chatLabRows}
+                loading={chatLabLoading}
+                rowLoadingIndex={chatLabRowLoadingIndex}
+                instruction={chatLabInstruction}
+                error={chatLabError}
+                onCountryChange={setCountry}
+                onPlatformChange={setPlatform}
+                onTitleChange={setChatLabTitle}
+                onPostChange={setChatLabPost}
+                onInstructionChange={setChatLabInstruction}
+                onClearPost={() => {
+                  setChatLabTitle('');
+                  setChatLabPost('');
+                  setChatLabInstruction('');
+                  setChatLabRows([]);
+                  setChatLabError('');
+                }}
+                onChange={setChatLabRows}
+                onCopy={handleCopy}
+                onGenerate={() => handleChatLabGenerate('fromPost')}
+                onContinue={() => handleChatLabGenerate('continueFromEdited')}
+                onRegenerateRow={handleChatLabRegenerateRow}
+              />
+            </div>
+          ) : (
+            <div className="mac-workspace">
+              <InputCard
+                scene={scene}
+                article={article}
+                topic={topic}
+                country={country}
+                platform={platform}
+                loading={loading}
+                error={error}
+                onArticleChange={(value) => {
+                  setArticle(value);
+                  resetWork();
+                }}
+                onTopicChange={(value) => {
+                  setTopic(value);
+                  resetWork();
+                }}
+                onCountryChange={(value) => {
+                  setCountry(value);
+                  resetWork();
+                }}
+                onPlatformChange={(value) => {
+                  setPlatform(value);
+                  resetWork();
+                }}
+                onAnalyze={handleAnalyze}
+                onClear={() => {
+                  if (scene === 'article') setArticle('');
+                  else setTopic('');
+                  resetWork();
+                }}
+              />
+              <DynamicCard
+                stage={stage}
+                angles={angles}
+                selectedAngleId={selectedAngleId}
+                loading={loading}
+                result={result}
+                factCheckStatuses={factCheckStatuses}
+                polishChanges={polishChanges}
+                polishingField={polishingField}
+                revisingContent={revisingContent}
+                chatLoading={chatLoading}
+                rowLoadingIndex={rowLoadingIndex}
+                canRestorePost={postHistory.length > 0}
+                onSelectAngle={setSelectedAngleId}
+                onGenerate={handleGenerate}
+                onAddCustomAngle={handleAddCustomAngle}
+                onBack={() => {
+                  setResult(emptyResult);
+                  setFactCheckStatuses({});
+                }}
+                onCopy={handleCopy}
+                onTitleChange={(value) => setResult((prev) => ({ ...prev, title: value }))}
+                onPostChange={handlePostChange}
+                onRestorePost={handleRestorePost}
+                onChatChange={(rows) => setResult((prev) => ({ ...prev, chat: rows }))}
+                onPolishField={handlePolishField}
+                onReviseContent={handleReviseContent}
+                onRegenerateChat={(instruction) => handleRegenerateChat('fromPost', instruction)}
+                onContinueChat={(instruction) => handleRegenerateChat('continueFromEdited', instruction)}
+                onRegenerateChatRow={handleRegenerateChatRow}
+                onMarkFactCheck={(index, status) =>
+                  setFactCheckStatuses((prev) => ({ ...prev, [index]: status }))
+                }
+                onSave={handleManualSave}
+              />
+            </div>
+          )}
+        </main>
+      </div>
+      <MobileBottomNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
+    </div>
+  );
+}

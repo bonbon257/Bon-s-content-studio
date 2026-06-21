@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HelloTalk 内容工具 · Web 宽屏布局 Mockup</title>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #6b6b6b;
+      --cream: #faf7f2;
+      --sand: #f5f0e8;
+      --green: #d4e8e0;
+      --pink: #f0b8b8;
+      --line: #e8e4de;
+      --white: #ffffff;
+      --shadow: 0 24px 70px rgba(26, 26, 26, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,.55), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(240,184,184,.28), transparent 32%),
+        var(--green);
+      color: var(--ink);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .page {
+      padding: 16px;
+      min-height: 100vh;
+    }
+    .frame {
+      min-height: calc(100vh - 32px);
+      width: 100%;
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      overflow: hidden;
+      border-radius: 28px;
+      background: var(--cream);
+      box-shadow: var(--shadow);
+    }
+    .side {
+      background: var(--sand);
+      padding: 18px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      border-radius: 0 28px 28px 0;
+    }
+    .logo, .nav, .avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      font-weight: 900;
+    }
+    .logo { width: 54px; height: 54px; }
+    .nav.active { background: #1a1a1a; color: white; }
+    .avatar { margin-top: auto; color: var(--muted); }
+    .main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      height: 66px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      gap: 18px;
+    }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      background: rgba(255,255,255,.65);
+      border-radius: 999px;
+      padding: 4px;
+      overflow: auto;
+    }
+    .tab {
+      border-radius: 999px;
+      padding: 9px 16px;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .tab.active { background: #1a1a1a; color: white; }
+    .workspace {
+      display: grid;
+      grid-template-columns: 420px minmax(620px, 1fr) 300px;
+      gap: 20px;
+      padding: 10px 28px 28px;
+      min-height: 0;
+      flex: 1;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 26px;
+      padding: 22px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.04);
+      min-height: calc(100vh - 126px);
+    }
+    .panel.soft {
+      background:
+        radial-gradient(circle at top right, rgba(245,213,213,.42), transparent 28%),
+        #fff;
+    }
+    .kicker {
+      color: var(--pink);
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-size: 12px;
+      margin: 0 0 6px;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 27px; margin-bottom: 10px; }
+    h2 { font-size: 18px; margin-bottom: 14px; }
+    h3 { font-size: 15px; margin-bottom: 8px; }
+    p { color: var(--muted); line-height: 1.7; }
+    .field { margin-top: 18px; }
+    .label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--muted);
+      letter-spacing: .04em;
+    }
+    .input, .textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px 16px;
+      background: var(--sand);
+      font: inherit;
+      color: var(--ink);
+      outline: none;
+    }
+    .textarea { min-height: 130px; resize: vertical; }
+    .btn {
+      width: 100%;
+      border: none;
+      border-radius: 18px;
+      margin-top: 18px;
+      padding: 15px 18px;
+      background: var(--ink);
+      color: white;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .rule {
+      margin-top: 18px;
+      border-radius: 18px;
+      background: var(--sand);
+      padding: 14px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .docbox {
+      border: 1px dashed #d8d0c6;
+      background: #fff9f4;
+      border-radius: 18px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+    .docline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-radius: 14px;
+      background: #fff;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .pill {
+      display: inline-flex;
+      border-radius: 999px;
+      background: var(--sand);
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .post {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: #fff;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .post-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      font-weight: 900;
+      margin-bottom: 12px;
+    }
+    .content-block {
+      background: #faf7f2;
+      border-radius: 18px;
+      padding: 16px;
+      line-height: 1.85;
+      white-space: pre-line;
+    }
+    .app-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .app-card {
+      border-radius: 18px;
+      background: var(--sand);
+      padding: 14px;
+      min-height: 112px;
+    }
+    .app-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .side-help {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .mini-card {
+      border-radius: 20px;
+      background: #fff;
+      border: 1px solid var(--line);
+      padding: 16px;
+    }
+    .mini-card strong {
+      display: block;
+      margin-bottom: 8px;
+    }
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+    .old, .new {
+      border-radius: 24px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    .old {
+      opacity: .72;
+      transform: scale(.96);
+      transform-origin: left center;
+    }
+    .wire {
+      height: 240px;
+      border-radius: 18px;
+      background:
+        linear-gradient(90deg, #f5f0e8 18%, transparent 18%),
+        linear-gradient(#f5f0e8 18%, transparent 18%),
+        #faf7f2;
+      background-size: 100% 100%, 100% 52px;
+      border: 1px solid var(--line);
+    }
+    .caption {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-bottom: 0;
+    }
+    @media (max-width: 1280px) {
+      .workspace { grid-template-columns: 390px minmax(0, 1fr); }
+      .side-help { display: none; }
+    }
+    @media (max-width: 900px) {
+      .page { padding: 0; }
+      .frame { border-radius: 0; grid-template-columns: 1fr; }
+      .side { display: none; }
+      .topbar { padding: 0 16px; }
+      .workspace { grid-template-columns: 1fr; padding: 10px 16px 92px; }
+      .panel { min-height: auto; }
+      .app-list { grid-template-columns: 1fr; }
+      .compare { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="compare">
+      <section class="old">
+        <h2>现在的感觉</h2>
+        <div class="wire"></div>
+        <p class="caption">外层最大宽度固定在中等尺寸，大屏幕两侧留白较明显，所以会像 iPad 适配。</p>
+      </section>
+      <section class="new">
+        <h2>建议改成 Web 工作台</h2>
+        <div class="wire" style="height:240px;background-size:76px 100%,100% 50px;"></div>
+        <p class="caption">外层铺满浏览器宽度，左侧输入、中间输出、右侧规则/素材提示；普通屏幕自动收成左右两栏。</p>
+      </section>
+    </div>
+
+    <main class="frame">
+      <aside class="side">
+        <div class="logo">HT</div>
+        <div class="nav">文</div>
+        <div class="nav">题</div>
+        <div class="nav">搜</div>
+        <div class="nav">聊</div>
+        <div class="nav active">APP</div>
+        <div class="avatar">我</div>
+      </aside>
+
+      <section class="main">
+        <header class="topbar">
+          <div class="tabs">
+            <div class="tab">文章改写</div>
+            <div class="tab">话题创作</div>
+            <div class="tab">资料检索</div>
+            <div class="tab">聊天生成</div>
+            <div class="tab active">APP推荐</div>
+          </div>
+          <span class="pill">宽屏预览 · 100% Web 宽度</span>
+        </header>
+
+        <div class="workspace">
+          <aside class="panel">
+            <p class="kicker">App share · 素材学习</p>
+            <h1>小红书 APP 真人分享贴</h1>
+            <p>左侧输入主题和素材文档，LLM 先学习素材，再按“背景 + 1/2/3 APP 优点”的结构写正文。</p>
+
+            <div class="field">
+              <label class="label">分享主题 / 真实场景</label>
+              <input class="input" value="马上去日本玩，想提前练一点日语口语" />
+            </div>
+
+            <div class="field">
+              <label class="label">素材文档</label>
+              <div class="docbox">
+                <div class="docline">
+                  <span>📄 APP素材库.md</span>
+                  <span class="pill">已读取</span>
+                </div>
+                <p class="caption" style="margin-top:10px;">用于学习 HelloTalk、记单词、翻译、旅行场景等素材，不直接照搬。</p>
+              </div>
+            </div>
+
+            <div class="rule">
+              固定结构：先写真实背景，再按 1、2、3 写每个 APP 的优点。HelloTalk 必须出现在第 1 或第 2 位；不出现竞品；不出现“最、神器、推荐、种草”等词。
+            </div>
+
+            <button class="btn">生成真人分享贴</button>
+          </aside>
+
+          <section class="panel soft">
+            <div class="post">
+              <div class="post-title">
+                <span>标题</span>
+                <span class="pill">13 / 20 字</span>
+              </div>
+              <div class="content-block">去日本前我先练了口语</div>
+            </div>
+
+            <div class="post">
+              <div class="post-title">
+                <span>正文贴文</span>
+                <span class="pill">结构化 APP 分享</span>
+              </div>
+              <div class="content-block">下个月要去日本玩，我发现自己会看一点日语但开口很紧张，所以这两周开始用几个 APP 提前练一下。
+
+1、HelloTalk：我主要拿来和日本本地人聊日常，对方会顺手帮我改表达，问路、点餐这种句子练起来更像真实聊天。
+2、XX 单词：适合每天碎片时间记旅行高频词，不用一次背太多。
+3、XX 翻译：临时看菜单或交通提示比较方便，出门前存着会安心一点。
+
+#认识外国人 #找外国人聊天 #日语学习 #日本旅行</div>
+
+              <div class="app-list">
+                <div class="app-card">
+                  <strong>1. HelloTalk</strong>
+                  <p class="caption">真人对话、纠正表达、旅行口语。</p>
+                </div>
+                <div class="app-card">
+                  <strong>2. XX 单词</strong>
+                  <p class="caption">高频词、碎片学习、轻量打卡。</p>
+                </div>
+                <div class="app-card">
+                  <strong>3. XX 翻译</strong>
+                  <p class="caption">菜单交通、应急查询、出行辅助。</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="post">
+              <div class="post-title">
+                <span>修改方向</span>
+                <span class="pill">基于当前正文改</span>
+              </div>
+              <textarea class="textarea">更像朋友分享，开头加一点马上出发的紧张感，第二个 APP 不要写太广告。</textarea>
+            </div>
+          </section>
+
+          <aside class="side-help">
+            <div class="mini-card">
+              <strong>素材规则</strong>
+              <p class="caption">支持粘贴素材，或上传/读取一个素材文档。生成时把素材作为参考，不覆盖你的主题。</p>
+            </div>
+            <div class="mini-card">
+              <strong>聊天重写</strong>
+              <p class="caption">“重写”会根据最新正文重新生成整份聊天记录，不再把新增内容追加到尾部。</p>
+            </div>
+            <div class="mini-card">
+              <strong>宽屏适配</strong>
+              <p class="caption">大屏显示三栏；普通笔记本显示两栏；手机/窄屏自动上下排列。</p>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
