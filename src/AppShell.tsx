@@ -51,6 +51,7 @@ import {
   polishText,
   regenerateChat,
   regenerateChatRow,
+  researchGeneratedContent,
   researchTopic,
   reviseGeneratedContent,
   saveConfig,
@@ -62,6 +63,7 @@ import type {
   Country,
   FactCheckItem,
   GenerationResult,
+  GeneratedContentResearchResult,
   HistoryRecord,
   Platform,
   Scene,
@@ -750,20 +752,20 @@ function OutputResult({
   polishChanges,
   polishingField,
   revisingContent,
-  chatLoading,
-  rowLoadingIndex,
   canRestorePost,
+  contentResearchQuestion,
+  contentResearchResult,
+  contentResearchLoading,
+  contentResearchError,
   onBack,
   onCopy,
   onTitleChange,
   onPostChange,
   onRestorePost,
-  onChatChange,
+  onContentResearchQuestionChange,
+  onResearchContent,
   onPolishField,
   onReviseContent,
-  onRegenerateChat,
-  onContinueChat,
-  onRegenerateChatRow,
   onMarkFactCheck,
   onSave,
 }: {
@@ -772,20 +774,20 @@ function OutputResult({
   polishChanges: string[];
   polishingField: 'title' | 'post' | null;
   revisingContent: boolean;
-  chatLoading: boolean;
-  rowLoadingIndex: number | null;
   canRestorePost: boolean;
+  contentResearchQuestion: string;
+  contentResearchResult: GeneratedContentResearchResult | null;
+  contentResearchLoading: boolean;
+  contentResearchError: string;
   onBack: () => void;
   onCopy: (text: string) => void;
   onTitleChange: (value: string) => void;
   onPostChange: (value: string) => void;
   onRestorePost: () => void;
-  onChatChange: (rows: ChatRow[]) => void;
+  onContentResearchQuestionChange: (value: string) => void;
+  onResearchContent: () => Promise<void>;
   onPolishField: (field: 'title' | 'post') => void;
   onReviseContent: (instruction: string) => Promise<boolean>;
-  onRegenerateChat: (instruction?: string) => Promise<boolean>;
-  onContinueChat: (instruction?: string) => Promise<boolean>;
-  onRegenerateChatRow: (index: number, instruction?: string) => Promise<boolean>;
   onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
   onSave: () => void;
 }) {
@@ -905,15 +907,14 @@ function OutputResult({
         onRevise={onReviseContent}
       />
 
-      <ChatResult
-        rows={result.chat}
-        loading={chatLoading}
-        rowLoadingIndex={rowLoadingIndex}
-        onChange={onChatChange}
+      <AiContentCheckPanel
+        question={contentResearchQuestion}
+        result={contentResearchResult}
+        loading={contentResearchLoading}
+        error={contentResearchError}
+        onQuestionChange={onContentResearchQuestionChange}
+        onResearch={onResearchContent}
         onCopy={onCopy}
-        onRegenerate={onRegenerateChat}
-        onContinue={onContinueChat}
-        onRegenerateRow={onRegenerateChatRow}
       />
 
       <footer className="flex flex-col gap-3 pt-2 sm:flex-row">
@@ -926,6 +927,89 @@ function OutputResult({
         </button>
       </footer>
     </motion.div>
+  );
+}
+
+function AiContentCheckPanel({
+  question,
+  result,
+  loading,
+  error,
+  onQuestionChange,
+  onResearch,
+  onCopy,
+}: {
+  question: string;
+  result: GeneratedContentResearchResult | null;
+  loading: boolean;
+  error: string;
+  onQuestionChange: (value: string) => void;
+  onResearch: () => Promise<void>;
+  onCopy: (text: string) => void;
+}) {
+  const copyText = result
+    ? [
+        `背景判断：${result.summary}`,
+        result.angles.length ? `可用角度：\n${result.angles.map((item) => `- ${item}`).join('\n')}` : '',
+        result.risks.length ? `风险提醒：\n${result.risks.map((item) => `- ${item}`).join('\n')}` : '',
+        result.insertableLines.length
+          ? `可加入正文的句子：\n${result.insertableLines.map((item) => `- ${item}`).join('\n')}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+    : '';
+
+  return (
+    <section className="mac-result-card">
+      <header className="mac-result-header">
+        <span>🔍 AI 内容检索 / 背景 Check</span>
+        {result && (
+          <button type="button" onClick={() => onCopy(copyText)} className="mac-mini-btn">
+            <Copy className="h-3.5 w-3.5" /> 复制结果
+          </button>
+        )}
+      </header>
+      <div className="rounded-[20px] bg-[#F5F0E8] p-4">
+        <textarea
+          value={question}
+          onChange={(event) => onQuestionChange(event.target.value)}
+          rows={3}
+          placeholder="例如：帮我 check 这个背景是否真实；这个角度会不会太硬广；补充一个更真实的外国朋友视角。"
+          className="mac-textarea !min-h-[96px] !bg-white"
+        />
+        <button type="button" onClick={onResearch} disabled={loading} className="mac-primary-btn mt-3 w-full">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          {loading ? '检索中...' : 'AI 内容检索'}
+        </button>
+      </div>
+      {error && <p className="mt-3 rounded-2xl bg-[#F5D5D5] px-4 py-2 text-sm text-[#1A1A1A]">{error}</p>}
+      {result && (
+        <div className="mt-4 grid gap-3">
+          <div>
+            <p className="mac-label">背景判断</p>
+            <p className="text-sm leading-6 text-[#1A1A1A]">{result.summary || '暂无明确判断。'}</p>
+          </div>
+          <MiniList title="可用角度" items={result.angles} />
+          <MiniList title="风险提醒" items={result.risks} tone="warn" />
+          <MiniList title="可加入正文的句子" items={result.insertableLines} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MiniList({ title, items, tone = 'default' }: { title: string; items: string[]; tone?: 'default' | 'warn' }) {
+  if (!items.length) return null;
+  return (
+    <div className={`rounded-[18px] p-3 ${tone === 'warn' ? 'bg-[#F5E6D0]' : 'bg-[#FAF7F2]'}`}>
+      <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#6B6B6B]">{title}</p>
+      <ul className="space-y-1 text-sm leading-6 text-[#1A1A1A]">
+        {items.map((item, index) => (
+          <li key={`${title}-${index}`}>• {item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -950,8 +1034,6 @@ function ChatResult({
 }) {
   const [chatInstruction, setChatInstruction] = useState('');
 
-  if (!rows?.length) return null;
-
   function update(index: number, key: keyof ChatRow, value: string) {
     onChange(rows.map((row, idx) => (idx === index ? { ...row, [key]: value } : row)));
   }
@@ -974,97 +1056,115 @@ function ChatResult({
             disabled={loading}
           >
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            重生成
+            {rows?.length ? '按当前正文重生成' : '生成聊天记录'}
           </button>
-          <button
-            type="button"
-            onClick={async () => {
-              const ok = await onContinue(chatInstruction);
-              if (ok) setChatInstruction('');
-            }}
-            className="mac-mini-btn"
-            disabled={loading}
-          >
-            {loading ? '处理中...' : '按建议重写聊天'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onCopy(rows.map((row) => `${row.target}\t${row.foreign}\t${row.chinese}`).join('\n'))}
-            className="mac-mini-btn"
-          >
-            <Copy className="h-3.5 w-3.5" /> 复制表格
-          </button>
+          {rows?.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await onContinue(chatInstruction);
+                  if (ok) setChatInstruction('');
+                }}
+                className="mac-mini-btn"
+                disabled={loading}
+              >
+                {loading ? '处理中...' : '按建议重写聊天'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onCopy(rows.map((row) => `${row.target}\t${row.foreign}\t${row.chinese}`).join('\n'))}
+                className="mac-mini-btn"
+              >
+                <Copy className="h-3.5 w-3.5" /> 复制表格
+              </button>
+            </>
+          )}
         </div>
       </header>
-      <div className="mac-chat-table-wrap">
-        <table className="mac-chat-table">
-          <thead>
-            <tr>
-              <th>对象</th>
-              <th>外语</th>
-              <th>中文</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={index}>
-                <td>
-                  <input
-                    value={row.target}
-                    onChange={(event) => update(index, 'target', event.target.value)}
-                    className="mac-table-input font-bold"
-                  />
-                </td>
-                <td>
-                  <textarea
-                    value={row.foreign}
-                    onChange={(event) => update(index, 'foreign', event.target.value)}
-                    rows={2}
-                    className="mac-table-input min-h-[58px] resize-y"
-                  />
-                </td>
-                <td>
-                  <textarea
-                    value={row.chinese}
-                    onChange={(event) => update(index, 'chinese', event.target.value)}
-                    rows={2}
-                    className="mac-table-input min-h-[58px] resize-y"
-                  />
-                </td>
-                <td>
-                  <div className="flex min-w-[108px] flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const ok = await onRegenerateRow(index, chatInstruction);
-                        if (ok) setChatInstruction('');
-                      }}
-                      disabled={loading || rowLoadingIndex !== null}
-                      className="mac-row-action-btn"
-                    >
-                      {rowLoadingIndex === index ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                      重生成本行
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteRow(index)}
-                      disabled={loading || rowLoadingIndex !== null || rows.length <= 1}
-                      className="mac-row-action-btn danger"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      删除
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-3 text-xs leading-5 text-[#6B6B6B]">
-        修改任意单元格后，也可以在下方写清楚你想要的方向，系统会结合正文、已改聊天和建议重写后续内容。
-      </p>
+      {!rows?.length ? (
+        <div className="flex min-h-[280px] items-center justify-center rounded-[22px] border-2 border-dashed border-[#E8E4DE] bg-[#FAF7F2] p-6 text-center">
+          <div>
+            <MessageCircle className="mx-auto mb-3 h-9 w-9 text-[#F0B8B8]" />
+            <h3 className="text-base font-black text-[#1A1A1A]">确认正文后生成聊天记录</h3>
+            <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
+              你可以先修改标题和正文，再点击上方按钮。聊天会基于当前最新版正文生成，不浪费主生成 token。
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="mac-chat-table-wrap">
+            <table className="mac-chat-table">
+              <thead>
+                <tr>
+                  <th>对象</th>
+                  <th>外语</th>
+                  <th>中文</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={index}>
+                    <td>
+                      <input
+                        value={row.target}
+                        onChange={(event) => update(index, 'target', event.target.value)}
+                        className="mac-table-input font-bold"
+                      />
+                    </td>
+                    <td>
+                      <textarea
+                        value={row.foreign}
+                        onChange={(event) => update(index, 'foreign', event.target.value)}
+                        rows={2}
+                        className="mac-table-input min-h-[58px] resize-y"
+                      />
+                    </td>
+                    <td>
+                      <textarea
+                        value={row.chinese}
+                        onChange={(event) => update(index, 'chinese', event.target.value)}
+                        rows={2}
+                        className="mac-table-input min-h-[58px] resize-y"
+                      />
+                    </td>
+                    <td>
+                      <div className="flex min-w-[108px] flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await onRegenerateRow(index, chatInstruction);
+                            if (ok) setChatInstruction('');
+                          }}
+                          disabled={loading || rowLoadingIndex !== null}
+                          className="mac-row-action-btn"
+                        >
+                          {rowLoadingIndex === index ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          重生成本行
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteRow(index)}
+                          disabled={loading || rowLoadingIndex !== null || rows.length <= 1}
+                          className="mac-row-action-btn danger"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          删除
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-[#6B6B6B]">
+            修改任意单元格后，也可以在下方写清楚你想要的方向，系统会结合正文、已改聊天和建议重写后续内容。
+          </p>
+        </>
+      )}
       <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
         <div className="mb-2 flex items-center justify-between gap-3">
           <label className="mac-label !mb-0">聊天记录修改建议</label>
@@ -1111,6 +1211,10 @@ function DynamicCard({
   chatLoading,
   rowLoadingIndex,
   canRestorePost,
+  contentResearchQuestion,
+  contentResearchResult,
+  contentResearchLoading,
+  contentResearchError,
   onSelectAngle,
   onGenerate,
   onAddCustomAngle,
@@ -1120,6 +1224,8 @@ function DynamicCard({
   onPostChange,
   onRestorePost,
   onChatChange,
+  onContentResearchQuestionChange,
+  onResearchContent,
   onPolishField,
   onReviseContent,
   onRegenerateChat,
@@ -1140,6 +1246,10 @@ function DynamicCard({
   chatLoading: boolean;
   rowLoadingIndex: number | null;
   canRestorePost: boolean;
+  contentResearchQuestion: string;
+  contentResearchResult: GeneratedContentResearchResult | null;
+  contentResearchLoading: boolean;
+  contentResearchError: string;
   onSelectAngle: (id: number) => void;
   onGenerate: () => void;
   onAddCustomAngle: (angle: Angle) => void;
@@ -1149,6 +1259,8 @@ function DynamicCard({
   onPostChange: (value: string) => void;
   onRestorePost: () => void;
   onChatChange: (rows: ChatRow[]) => void;
+  onContentResearchQuestionChange: (value: string) => void;
+  onResearchContent: () => Promise<void>;
   onPolishField: (field: 'title' | 'post') => void;
   onReviseContent: (instruction: string) => Promise<boolean>;
   onRegenerateChat: (instruction?: string) => Promise<boolean>;
@@ -1173,29 +1285,45 @@ function DynamicCard({
         )}
         {stage === 'generating' && <GeneratingState />}
         {stage === 'result' && (
-          <OutputResult
-            result={result}
-            factCheckStatuses={factCheckStatuses}
-            polishChanges={polishChanges}
-            polishingField={polishingField}
-            revisingContent={revisingContent}
-            chatLoading={chatLoading}
-            rowLoadingIndex={rowLoadingIndex}
-            canRestorePost={canRestorePost}
-            onBack={onBack}
-            onCopy={onCopy}
-            onTitleChange={onTitleChange}
-            onPostChange={onPostChange}
-            onRestorePost={onRestorePost}
-            onChatChange={onChatChange}
-            onPolishField={onPolishField}
-            onReviseContent={onReviseContent}
-            onRegenerateChat={onRegenerateChat}
-            onContinueChat={onContinueChat}
-            onRegenerateChatRow={onRegenerateChatRow}
-            onMarkFactCheck={onMarkFactCheck}
-            onSave={onSave}
-          />
+          <div className="mac-result-workbench">
+            <div className="mac-output-column">
+              <OutputResult
+                result={result}
+                factCheckStatuses={factCheckStatuses}
+                polishChanges={polishChanges}
+                polishingField={polishingField}
+                revisingContent={revisingContent}
+                canRestorePost={canRestorePost}
+                contentResearchQuestion={contentResearchQuestion}
+                contentResearchResult={contentResearchResult}
+                contentResearchLoading={contentResearchLoading}
+                contentResearchError={contentResearchError}
+                onBack={onBack}
+                onCopy={onCopy}
+                onTitleChange={onTitleChange}
+                onPostChange={onPostChange}
+                onRestorePost={onRestorePost}
+                onContentResearchQuestionChange={onContentResearchQuestionChange}
+                onResearchContent={onResearchContent}
+                onPolishField={onPolishField}
+                onReviseContent={onReviseContent}
+                onMarkFactCheck={onMarkFactCheck}
+                onSave={onSave}
+              />
+            </div>
+            <aside className="mac-chat-column">
+              <ChatResult
+                rows={result.chat}
+                loading={chatLoading}
+                rowLoadingIndex={rowLoadingIndex}
+                onChange={onChatChange}
+                onCopy={onCopy}
+                onRegenerate={onRegenerateChat}
+                onContinue={onContinueChat}
+                onRegenerateRow={onRegenerateChatRow}
+              />
+            </aside>
+          </div>
         )}
       </AnimatePresence>
     </section>
@@ -1695,7 +1823,6 @@ function ChatLabView({
 function DocumentGeneratorView({
   document,
   briefing,
-  includeChat,
   result,
   variation,
   loading,
@@ -1704,7 +1831,6 @@ function DocumentGeneratorView({
   platform,
   onDocumentChange,
   onBriefingChange,
-  onIncludeChatChange,
   onCountryChange,
   onPlatformChange,
   onGenerate,
@@ -1714,7 +1840,6 @@ function DocumentGeneratorView({
 }: {
   document: string;
   briefing: string;
-  includeChat: boolean;
   result: GenerationResult | null;
   variation: number;
   loading: boolean;
@@ -1723,7 +1848,6 @@ function DocumentGeneratorView({
   platform: Platform;
   onDocumentChange: (value: string) => void;
   onBriefingChange: (value: string) => void;
-  onIncludeChatChange: (value: boolean) => void;
   onCountryChange: (value: Country) => void;
   onPlatformChange: (value: Platform) => void;
   onGenerate: () => void;
@@ -1835,15 +1959,9 @@ function DocumentGeneratorView({
             />
           </label>
 
-          <label className="flex items-center gap-3 rounded-[18px] bg-[#F5F0E8] p-3 text-sm text-[#1A1A1A]">
-            <input
-              type="checkbox"
-              checked={includeChat}
-              onChange={(event) => onIncludeChatChange(event.target.checked)}
-              className="h-4 w-4"
-            />
-            同时输出聊天记录（默认关闭，仅勾选时生成）
-          </label>
+          <div className="rounded-[18px] bg-[#F5F0E8] p-3 text-sm leading-6 text-[#1A1A1A]">
+            聊天记录不会在正文生成时一起生成。请先确认并修改正文，再到“聊天生成”页按当前正文生成，避免浪费 token。
+          </div>
 
           {error && <p className="rounded-2xl bg-[#F5D5D5] px-4 py-2 text-sm text-[#1A1A1A]">{error}</p>}
 
@@ -1882,7 +2000,7 @@ function DocumentGeneratorView({
                 <FileText className="mx-auto mb-4 h-10 w-10 text-[#F0B8B8]" />
                 <h2 className="text-lg font-black text-[#1A1A1A]">右侧会显示生成结果</h2>
                 <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
-                  默认仅生成标题、正文和标签；如需聊天记录，请勾选左侧选项。
+                  默认仅生成标题、正文和标签；聊天记录请在确认正文后单独生成。
                 </p>
               </div>
             </div>
@@ -1919,23 +2037,6 @@ function DocumentGeneratorView({
                 </header>
                 <p className="text-sm text-[#6B6B6B]">{tagsText}</p>
               </section>
-
-              {includeChat && result.chat && result.chat.length > 0 && (
-                <section className="mac-result-card">
-                  <header className="mac-result-header">
-                    <span>💬 聊天记录</span>
-                  </header>
-                  <div className="space-y-2">
-                    {result.chat.map((row, idx) => (
-                      <div key={idx} className="rounded-2xl bg-[#FAF7F2] p-3 text-sm leading-6 text-[#1A1A1A]">
-                        <p className="text-xs font-semibold text-[#6B6B6B]">{row.target}</p>
-                        <p>{row.chinese}</p>
-                        {row.foreign && <p className="text-[#6B6B6B]">{row.foreign}</p>}
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
 
               <button
                 type="button"
@@ -2003,9 +2104,14 @@ export default function AppShell() {
   const [postHistory, setPostHistory] = useState<string[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [rowLoadingIndex, setRowLoadingIndex] = useState<number | null>(null);
+  const [contentResearchQuestion, setContentResearchQuestion] = useState('');
+  const [contentResearchResult, setContentResearchResult] = useState<GeneratedContentResearchResult | null>(null);
+  const [contentResearchLoading, setContentResearchLoading] = useState(false);
+  const [contentResearchError, setContentResearchError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
+  const [themeDraft, setThemeDraft] = useState<ThemeSettings>(() => loadThemeSettings());
   const [config, setConfig] = useState(() => loadConfig());
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
@@ -2032,7 +2138,6 @@ export default function AppShell() {
   // Document-based generation state
   const [docDocument, setDocDocument] = useState('');
   const [docBriefing, setDocBriefing] = useState('');
-  const [docIncludeChat, setDocIncludeChat] = useState(false);
   const [docResult, setDocResult] = useState<GenerationResult | null>(null);
   const [docVariation, setDocVariation] = useState(0);
   const [docLoading, setDocLoading] = useState(false);
@@ -2071,6 +2176,9 @@ export default function AppShell() {
     setFactCheckStatuses({});
     setPolishChanges([]);
     setPostHistory([]);
+    setContentResearchQuestion('');
+    setContentResearchResult(null);
+    setContentResearchError('');
     setError('');
   }
 
@@ -2160,6 +2268,8 @@ export default function AppShell() {
       setResult(nextResult);
       setFactCheckStatuses({});
       setPostHistory([]);
+      setContentResearchResult(null);
+      setContentResearchError('');
       history.add({
         country,
         topic,
@@ -2307,6 +2417,33 @@ export default function AppShell() {
       return false;
     } finally {
       setChatLoading(false);
+    }
+  }
+
+  async function handleResearchGeneratedContent() {
+    if (!result.title.trim() && !result.post.trim()) {
+      showToast('请先生成或填写正文');
+      return;
+    }
+    setContentResearchLoading(true);
+    setContentResearchError('');
+    try {
+      const next = await researchGeneratedContent({
+        config,
+        title: result.title,
+        post: result.post,
+        country,
+        platform,
+        question: contentResearchQuestion,
+      });
+      setContentResearchResult(next);
+      showToast('AI 内容检索已完成');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'AI 内容检索失败';
+      setContentResearchError(message);
+      showToast(message);
+    } finally {
+      setContentResearchLoading(false);
     }
   }
 
@@ -2479,7 +2616,7 @@ export default function AppShell() {
         briefing: docBriefing,
         country,
         platform,
-        includeChat: docIncludeChat,
+        includeChat: false,
         variation,
         viralSkill: buildViralSkillContext(combinedViralExamples, docBriefing || docDocument),
       });
@@ -2498,7 +2635,6 @@ export default function AppShell() {
   function handleClearDocument() {
     setDocDocument('');
     setDocBriefing('');
-    setDocIncludeChat(false);
     setDocResult(null);
     setDocVariation(0);
     setDocError('');
@@ -2583,8 +2719,31 @@ export default function AppShell() {
 
   useEffect(() => {
     applyThemeSettings(themeSettings);
-    saveThemeSettings(themeSettings);
   }, [themeSettings]);
+
+  function openThemeDrawer() {
+    setThemeDraft(themeSettings);
+    setThemeOpen(true);
+  }
+
+  function previewTheme(next: ThemeSettings) {
+    setThemeDraft(next);
+    applyThemeSettings(next);
+  }
+
+  function cancelThemeDrawer() {
+    applyThemeSettings(themeSettings);
+    setThemeDraft(themeSettings);
+    setThemeOpen(false);
+  }
+
+  function saveThemeDrawer() {
+    setThemeSettings(themeDraft);
+    saveThemeSettings(themeDraft);
+    applyThemeSettings(themeDraft);
+    setThemeOpen(false);
+    showToast('页面设计已保存');
+  }
 
   return (
     <div className="mac-page-shell">
@@ -2593,7 +2752,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={() => setThemeOpen(true)} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
@@ -2602,10 +2761,11 @@ export default function AppShell() {
           />
           <ThemeDrawer
             open={themeOpen}
-            settings={themeSettings}
-            onClose={() => setThemeOpen(false)}
-            onChange={setThemeSettings}
-            onReset={() => setThemeSettings(THEME_PRESETS.creamGreen.settings)}
+            settings={themeDraft}
+            onClose={cancelThemeDrawer}
+            onChange={previewTheme}
+            onReset={() => previewTheme(THEME_PRESETS.creamGreen.settings)}
+            onSave={saveThemeDrawer}
           />
 
           {active === 'history' ? (
@@ -2664,7 +2824,6 @@ export default function AppShell() {
               <DocumentGeneratorView
                 document={docDocument}
                 briefing={docBriefing}
-                includeChat={docIncludeChat}
                 result={docResult}
                 variation={docVariation}
                 loading={docLoading}
@@ -2679,7 +2838,6 @@ export default function AppShell() {
                   setDocBriefing(value);
                   setDocError('');
                 }}
-                onIncludeChatChange={setDocIncludeChat}
                 onCountryChange={setCountry}
                 onPlatformChange={setPlatform}
                 onGenerate={() => handleGenerateFromDocument('first')}
@@ -2765,6 +2923,10 @@ export default function AppShell() {
                 chatLoading={chatLoading}
                 rowLoadingIndex={rowLoadingIndex}
                 canRestorePost={postHistory.length > 0}
+                contentResearchQuestion={contentResearchQuestion}
+                contentResearchResult={contentResearchResult}
+                contentResearchLoading={contentResearchLoading}
+                contentResearchError={contentResearchError}
                 onSelectAngle={setSelectedAngleId}
                 onGenerate={handleGenerate}
                 onAddCustomAngle={handleAddCustomAngle}
@@ -2777,6 +2939,11 @@ export default function AppShell() {
                 onPostChange={handlePostChange}
                 onRestorePost={handleRestorePost}
                 onChatChange={(rows) => setResult((prev) => ({ ...prev, chat: rows }))}
+                onContentResearchQuestionChange={(value) => {
+                  setContentResearchQuestion(value);
+                  setContentResearchError('');
+                }}
+                onResearchContent={handleResearchGeneratedContent}
                 onPolishField={handlePolishField}
                 onReviseContent={handleReviseContent}
                 onRegenerateChat={(instruction) => handleRegenerateChat('fromPost', instruction)}

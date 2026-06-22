@@ -26,12 +26,14 @@ export function ThemeDrawer({
   onClose,
   onChange,
   onReset,
+  onSave,
 }: {
   open: boolean;
   settings: ThemeSettings;
   onClose: () => void;
   onChange: (next: ThemeSettings) => void;
   onReset: () => void;
+  onSave: () => void;
 }) {
   if (!open) return null;
 
@@ -52,7 +54,7 @@ export function ThemeDrawer({
               <Palette className="h-5 w-5" />
               页面设计
             </h2>
-            <p className="n-muted mt-1">主题、颜色、字体和布局，仅保存到当前浏览器。</p>
+            <p className="n-muted mt-1">先预览效果，点击“保存设计”后才会保留到当前浏览器。</p>
           </div>
           <button type="button" onClick={onClose} className="n-btn-ghost" title="关闭">
             <X className="h-4 w-4" />
@@ -179,9 +181,17 @@ export function ThemeDrawer({
               <p className="mt-2 text-xs text-muted">当前：{settings.radius}px</p>
             </section>
 
-            <button type="button" onClick={onReset} className="n-btn n-btn-ghost w-full justify-center">
-              恢复默认
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={onReset} className="n-btn n-btn-ghost justify-center">
+                恢复默认
+              </button>
+              <button type="button" onClick={onClose} className="n-btn n-btn-ghost justify-center">
+                取消
+              </button>
+              <button type="button" onClick={onSave} className="n-btn n-btn-primary col-span-2 justify-center">
+                保存设计
+              </button>
+            </div>
           </div>
         </div>
       </aside>

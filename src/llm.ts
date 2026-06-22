@@ -6,6 +6,7 @@ import type {
   Country,
   FactCheckItem,
   GenerationResult,
+  GeneratedContentResearchResult,
   LlmConfig,
   Platform,
   PolishResult,
@@ -416,6 +417,13 @@ function normalizeResult(payload: GenerationResult): GenerationResult {
   };
 }
 
+function withoutGeneratedChat(payload: GenerationResult): GenerationResult {
+  return {
+    ...normalizeResult(payload),
+    chat: [],
+  };
+}
+
 function normalizeTags(tags?: string[]): string[] {
   if (!Array.isArray(tags)) return [];
   return Array.from(
@@ -662,16 +670,16 @@ ${formatViralSkill(params.viralSkill)}
 ${FACT_RULES}
 标题必须精准抓住原文主题下最值得点进来的重点，不要只追求更短；要让小红书/抖音用户刷到时愿意点进来看。
 正文尽量简短，120-220字优先，减少重复表达，不写解释腔；要让用户看完觉得有意思、愿意点赞或评论。
-正文必须三段式：第一段现状或疑问；第二段去 HelloTalk 找搭子聊天探讨话题；第三段总结并抛出开放式问题。
+正文必须三段式：第一段现状或疑问；第二段写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给的真实回应；第三段总结并抛出开放式问题。
 输出前自检：标题是否有具体重点？正文是否真人、简短、不重复？如果不成立，先重写再输出。
 请输出 6-10 个 tags，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
-聊天对话必须是数组，用三列字段 target/chinese/foreign 表示"对象/中文/对应语言"。
+本次只生成正文内容，聊天记录必须输出空数组 chat: []，不要生成任何聊天对话。
 factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
-请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}
+请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}
 原文：
 ${params.article}`,
   );
-  return normalizeResult(payload);
+  return withoutGeneratedChat(payload);
 }
 
 export async function generateFromTopic(params: {
@@ -697,10 +705,11 @@ ${FACT_RULES}
 正文尽量简短，120-220字优先，减少重复表达，不写解释腔；要让用户看完觉得有意思、愿意点赞或评论。
 正文必须三段式。输出前自检：标题是否有具体重点？正文是否真人、简短、不重复？如果不成立，先重写再输出。
 tags 6-10 条，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
+本次只生成正文内容，聊天记录必须输出空数组 chat: []，不要生成任何聊天对话。
 factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
-请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
   );
-  return normalizeResult(payload);
+  return withoutGeneratedChat(payload);
 }
 
 export async function generateFromDocument(params: {
@@ -717,9 +726,7 @@ export async function generateFromDocument(params: {
     params.variation && params.variation > 0
       ? `\n这是第 ${params.variation + 1} 次"换一版"，必须与之前的版本切入角度不同：换一种立意、不同的开头钩子、不同的细节场景，避免重复表达。`
       : '';
-  const chatRule = params.includeChat
-    ? `\n请同时输出 chat 数组（4-6 行），用三列字段 target/chinese/foreign 表示"对象/中文/对应语言"；如果文档明确表示不需要聊天记录，则输出空数组 []。`
-    : `\n本次活动只需要"真实分享"，请输出空数组 chat: []，不要生成任何聊天记录。`;
+  const chatRule = `\n本次只生成正文内容，聊天记录必须输出空数组 chat: []，不要生成任何聊天对话。用户确认并修改正文后，会单独点击按钮生成聊天记录。`;
   const payload = await callChatJson<GenerationResult>(
     params.config,
     `请基于"按文档生成模式"输出 1 条小红书/抖音真实分享内容。
@@ -744,7 +751,7 @@ ${params.document}
 
 请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
   );
-  return normalizeResult(payload);
+  return withoutGeneratedChat(payload);
 }
 
 export async function polishText(params: {
@@ -911,6 +918,21 @@ function normalizeResearch(payload: ResearchResult, fallbackTopic: string): Rese
   };
 }
 
+function normalizeGeneratedContentResearch(payload: GeneratedContentResearchResult): GeneratedContentResearchResult {
+  const toList = (items?: string[]) =>
+    (Array.isArray(items) ? items : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .slice(0, 6);
+
+  return {
+    summary: String(payload?.summary || '').trim(),
+    angles: toList(payload?.angles),
+    risks: toList(payload?.risks),
+    insertableLines: toList(payload?.insertableLines),
+  };
+}
+
 export async function researchTopic(params: {
   config: LlmConfig;
   topic: string;
@@ -925,4 +947,38 @@ export async function researchTopic(params: {
     { systemPrompt: RESEARCH_SYSTEM_PROMPT, temperature: 0.5 },
   );
   return normalizeResearch(payload, params.topic);
+}
+
+export async function researchGeneratedContent(params: {
+  config: LlmConfig;
+  title: string;
+  post: string;
+  country: Country;
+  platform: Platform;
+  question: string;
+}): Promise<GeneratedContentResearchResult> {
+  const payload = await callChatJson<GeneratedContentResearchResult>(
+    params.config,
+    `请对以下已生成内容做"AI 内容检索 / 背景 Check"。
+国家：${params.country}
+平台：${params.platform}
+用户问题：${params.question || '请检查这个背景是否真实、角度是否自然、是否有可补充的真实表达。'}
+
+标题：
+${params.title}
+
+正文：
+${params.post}
+
+要求：
+${FACT_RULES}
+- 不要假装联网，不要编造具体来源、链接、政策名、数字。
+- 如果不确定，明确写"建议再核实"或"只能作为表达方向参考"。
+- 输出要服务于内容二次修改，不要直接覆盖原文。
+- insertableLines 给 2-5 句可直接加入正文的自然表达，必须口语化、真人分享语气。
+
+请严格输出 JSON：{"summary":"背景判断和简短结论","angles":["可用角度1"],"risks":["风险提醒1"],"insertableLines":["可加入正文的句子1"]}`,
+    { systemPrompt: RESEARCH_SYSTEM_PROMPT, temperature: 0.45 },
+  );
+  return normalizeGeneratedContentResearch(payload);
 }

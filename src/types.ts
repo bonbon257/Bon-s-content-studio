@@ -108,6 +108,13 @@ export interface ResearchResult {
   freshnessNote: string;
 }
 
+export interface GeneratedContentResearchResult {
+  summary: string;
+  angles: string[];
+  risks: string[];
+  insertableLines: string[];
+}
+
 export interface ResearchHistoryRecord {
   id: string;
   topic: string;
