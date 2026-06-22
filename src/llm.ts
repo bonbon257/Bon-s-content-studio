@@ -11,7 +11,9 @@ import type {
   Platform,
   PolishResult,
   ResearchResult,
+  UserPreferences,
 } from './types';
+import { buildPreferenceContext } from './hooks/usePreferences';
 
 export const COUNTRIES: Country[] = [
   '美国',
@@ -263,11 +265,16 @@ function extractJson<T>(text: string): T {
 async function callChatJson<T>(
   config: LlmConfig,
   userPrompt: string,
-  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean },
+  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean; preferenceContext?: string },
 ): Promise<T> {
   const useProxy = shouldUseCloudProxy();
   if (!useProxy && !config.apiKey.trim()) {
     throw new Error('缺少 LLM API Key，请在 .env.local 中配置 VITE_LLM_API_KEY。');
+  }
+
+  let systemContent = options?.systemPrompt ?? SYSTEM_PROMPT;
+  if (options?.preferenceContext) {
+    systemContent += options.preferenceContext;
   }
 
   const body = {
@@ -275,7 +282,7 @@ async function callChatJson<T>(
     temperature: options?.temperature ?? 0.82,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: options?.systemPrompt ?? SYSTEM_PROMPT },
+      { role: 'system', content: systemContent },
       { role: 'user', content: userPrompt },
     ],
     useChatModel: Boolean(options?.useChatModel),
@@ -332,6 +339,7 @@ export async function analyzeArticle(params: {
   country: Country;
   platform: Platform;
   viralSkill?: string;
+  preferenceContext?: string;
 }): Promise<Angle[]> {
   const payload = await callChatJson<{ angles: Angle[] }>(
     params.config,
@@ -360,6 +368,7 @@ ${formatViralSkill(params.viralSkill)}
 返回格式：{"angles":[{"id":1,"title":"必须贴合原文主题的角度名","description":"围绕原文的【具体主题】..."}]}
 原文：
 ${params.article}`,
+    { preferenceContext: params.preferenceContext },
   );
   return normalizeAngles(payload);
 }
@@ -370,6 +379,7 @@ export async function analyzeTopic(params: {
   country: Country;
   platform: Platform;
   viralSkill?: string;
+  preferenceContext?: string;
 }): Promise<Angle[]> {
   const payload = await callChatJson<{ angles: Angle[] }>(
     params.config,
@@ -391,6 +401,7 @@ export async function analyzeTopic(params: {
 目标外语：${LANGUAGE_MAP[params.country]}
 ${formatViralSkill(params.viralSkill)}
 返回格式：{"angles":[{"id":1,"title":"生活成本","description":"首尔等大城市生活成本和租房制度可能让外国人感到压力。"}]}`,
+    { preferenceContext: params.preferenceContext },
   );
   return normalizeAngles(payload);
 }
@@ -607,6 +618,7 @@ export async function reviseGeneratedContent(params: {
   platform?: Platform;
   angle?: string;
   sourceContext?: string;
+  preferenceContext?: string;
 }): Promise<ContentRevisionResult> {
   const isApp = params.mode === 'app';
   const payload = await callChatJson<ContentRevisionResult>(
@@ -654,7 +666,7 @@ ${isApp ? `APP真人分享额外要求：
 
 输出严格 JSON：
 {"title":"修改后的标题","post":"修改后的正文","tags":["#标签"],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}],"changes":["改动说明1","改动说明2"]}`,
-    { systemPrompt: isApp ? APP_RECOMMENDATION_SYSTEM_PROMPT : SYSTEM_PROMPT, temperature: 0.55 },
+    { systemPrompt: isApp ? APP_RECOMMENDATION_SYSTEM_PROMPT : SYSTEM_PROMPT, temperature: 0.55, preferenceContext: params.preferenceContext },
   );
 
   const result: ContentRevisionResult = {
@@ -690,6 +702,7 @@ export async function generateFromArticle(params: {
   country: Country;
   platform: Platform;
   viralSkill?: string;
+  preferenceContext?: string;
 }): Promise<GenerationResult> {
   const payload = await callChatJson<GenerationResult>(
     params.config,
@@ -712,6 +725,7 @@ factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed
 请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}
 原文：
 ${params.article}`,
+    { preferenceContext: params.preferenceContext },
   );
   return withoutGeneratedChat(payload);
 }
@@ -723,6 +737,7 @@ export async function generateFromTopic(params: {
   country: Country;
   platform: Platform;
   viralSkill?: string;
+  preferenceContext?: string;
 }): Promise<GenerationResult> {
   const payload = await callChatJson<GenerationResult>(
     params.config,
@@ -741,7 +756,8 @@ ${FACT_RULES}
 tags 6-10 条，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
 本次只生成正文内容，聊天记录必须输出空数组 chat: []，不要生成任何聊天对话。
 factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
-请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天","#认识外国人","#HT认识外国人"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+    { preferenceContext: params.preferenceContext },
   );
   return withoutGeneratedChat(payload);
 }
@@ -755,6 +771,7 @@ export async function generateFromDocument(params: {
   includeChat: boolean;
   variation?: number;
   viralSkill?: string;
+  preferenceContext?: string;
 }): Promise<GenerationResult> {
   const variationHint =
     params.variation && params.variation > 0
@@ -783,7 +800,8 @@ ${params.document}
 - tags 6-10 条，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
 - factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。${chatRule}${variationHint}
 
-请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天","#认识外国人","#HT认识外国人"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+    { preferenceContext: params.preferenceContext },
   );
   return withoutGeneratedChat(payload);
 }

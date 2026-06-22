@@ -121,3 +121,32 @@ export interface ResearchHistoryRecord {
   result: ResearchResult;
   createdAt: string;
 }
+
+export interface AutoLearnedPreferences {
+  countryFrequency: Record<string, number>;
+  platformFrequency: Record<string, number>;
+  angleKeywords: Record<string, number>;
+  instructionKeywords: Record<string, number>;
+  tagAdditions: Record<string, number>;
+  tagRemovals: Record<string, number>;
+  avgLengthDelta: number;
+  lengthSampleCount: number;
+  polishDirections: Record<string, number>;
+  lastUpdated: string;
+}
+
+export interface ManualPreferences {
+  writingStyle: string;
+  targetLength: number;
+  requiredTags: string[];
+  forbiddenTags: string[];
+  anglePreference: string;
+  globalInstruction: string;
+  friendPersona: string;
+}
+
+export interface UserPreferences {
+  auto: AutoLearnedPreferences;
+  manual: ManualPreferences;
+  version: number;
+}

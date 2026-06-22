@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   BookOpen,
+  Brain,
   CheckCircle2,
   Clock3,
   Copy,
@@ -28,6 +29,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
 import { HistoryPanel } from './components/HistoryPanel';
+import { PreferencesDrawer } from './components/PreferencesDrawer';
 import { ResearchView } from './components/ResearchView';
 import { SettingsDrawer } from './components/SettingsDrawer';
 import { ThemeDrawer } from './components/ThemeDrawer';
@@ -40,6 +42,7 @@ import {
 } from './theme';
 import { BUILT_IN_VIRAL_EXAMPLES } from './data/viralExamples';
 import { useHistory } from './hooks/useHistory';
+import { usePreferences } from './hooks/usePreferences';
 import {
   analyzeArticle,
   analyzeTopic,
@@ -190,11 +193,13 @@ function TopBar({
   onTabChange,
   onSettings,
   onTheme,
+  onPreferences,
 }: {
   active: AppTab;
   onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
   onSettings: () => void;
   onTheme: () => void;
+  onPreferences: () => void;
 }) {
   return (
     <header className="mac-topbar">
@@ -216,6 +221,9 @@ function TopBar({
       </div>
       <div className="flex items-center gap-3">
         <div className="mac-top-avatar">B</div>
+        <button type="button" onClick={onPreferences} className="mac-icon-btn" title="我的偏好">
+          <Brain className="h-5 w-5" />
+        </button>
         <button type="button" onClick={onTheme} className="mac-icon-btn" title="页面设计">
           <PaletteIcon className="h-5 w-5" />
         </button>
@@ -2179,6 +2187,8 @@ export default function AppShell() {
   const [chatModalOpen, setChatModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
   const [themeDraft, setThemeDraft] = useState<ThemeSettings>(() => loadThemeSettings());
   const [config, setConfig] = useState(() => loadConfig());
@@ -2287,8 +2297,8 @@ export default function AppShell() {
       );
       const nextAngles =
         active === 'article'
-          ? await analyzeArticle({ config, article, country, platform, viralSkill })
-          : await analyzeTopic({ config, topic, country, platform, viralSkill });
+          ? await analyzeArticle({ config, article, country, platform, viralSkill, preferenceContext: contextString })
+          : await analyzeTopic({ config, topic, country, platform, viralSkill, preferenceContext: contextString });
       setAngles(nextAngles);
       setSelectedAngleId(nextAngles[0]?.id ?? null);
       if (nextAngles.length === 0) showToast('没有解析出可用角度');
@@ -2325,6 +2335,7 @@ export default function AppShell() {
               country,
               platform,
               viralSkill,
+              preferenceContext: contextString,
             })
           : await generateFromTopic({
               config,
@@ -2333,6 +2344,7 @@ export default function AppShell() {
               country,
               platform,
               viralSkill,
+              preferenceContext: contextString,
             });
       setResult(nextResult);
       setFactCheckStatuses({});
@@ -2408,6 +2420,7 @@ export default function AppShell() {
       });
       setResult((prev) => ({ ...prev, [field]: polished }));
       setPolishChanges(changes.length ? changes : ['模型已优化表达，但未返回具体修改点。']);
+      learnFromPolish(field);
       showToast(changes.length ? '已润色并生成修改点' : '已润色');
     } catch (err) {
       showToast(err instanceof Error ? err.message : '润色失败');
@@ -2439,8 +2452,10 @@ export default function AppShell() {
         platform,
         angle: selectedAngle?.title,
         sourceContext: active === 'article' ? article : topic,
+        preferenceContext: contextString,
       });
       rememberPostVersion(result.post);
+      learnFromInstruction(value);
       setResult((prev) => ({
         ...prev,
         title: next.title,
@@ -2688,6 +2703,7 @@ export default function AppShell() {
         includeChat: false,
         variation,
         viralSkill: buildViralSkillContext(combinedViralExamples, docBriefing || docDocument),
+        preferenceContext: contextString,
       });
       setDocResult(nextResult);
       setDocVariation(variation);
@@ -2776,6 +2792,16 @@ export default function AppShell() {
       chat: result.chat,
       factChecks: result.factChecks,
     });
+    // 自动学习：记录生成 vs 最终保存的差异
+    learnFromGeneration({
+      country,
+      platform,
+      angleTitle: selectedAngle.title,
+      generatedPost: result.post,
+      finalPost: result.post,
+      generatedTags: result.tags,
+      finalTags: result.tags,
+    });
     showToast('已保存到历史记录');
   }
 
@@ -2833,7 +2859,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
@@ -2847,6 +2873,14 @@ export default function AppShell() {
             onChange={previewTheme}
             onReset={() => previewTheme(THEME_PRESETS.creamGreen.settings)}
             onSave={saveThemeDrawer}
+          />
+          <PreferencesDrawer
+            open={preferencesOpen}
+            prefs={prefs}
+            onClose={() => setPreferencesOpen(false)}
+            onSaveManual={saveManual}
+            onResetManual={resetManual}
+            onResetAuto={resetAuto}
           />
 
           {active === 'history' ? (
