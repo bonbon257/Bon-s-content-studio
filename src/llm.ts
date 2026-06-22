@@ -140,19 +140,22 @@ ${FACT_RULES}
 - 标题自检标准：如果你自己刷到这个标题，会不会想点进去看？如果不会，请重写。
 
 正文规则：
-- 120-220字优先，第一人称，像普通用户发帖；能短则短，不要为了凑字数重复解释。
+- 150字左右（130-170字），第一人称，像普通用户发帖；能短则短，绝对不要为了凑字数重复解释或堆砌形容词。
 - 必须严格三段式，用换行分成三段。
-- 第一段：现状、生活观察或疑问。
+- 第一段：现状、生活观察或疑问，用一句有画面感的话开头，让用户秒懂场景。
 - 第二段：写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给的真实回应；只能出现一个外国朋友，不要出现"我又问了另一个外国人""我朋友们""几个外国人""一群外国人"。禁止写"先和外国人聊天/认识，然后再去 HelloTalk"的逻辑，这位朋友本身就是在 HelloTalk 上认识的。
 - 第三段：总结和开放式提问。
 - 必须自然提及 HelloTalk 1次，只能 1次；提及方式必须明确"在 HelloTalk 上认识的"这层关系。
 - 禁止"下载""推广""点击""快去用"等硬广表达。
 - 正文不要重复标题，不要重复同一个观点，不要写成科普说明文；重点是让用户看完觉得"这个观察有意思/我也想评论/我愿意点赞"。
-- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？是否全文只出现了一个外国朋友？是否表达成"在 HelloTalk 上认识的朋友"，而不是"和外国人聊天后再去 HelloTalk"？如果没有，请重写。
+- 正文是"钩子"，目的是勾起用户兴趣，让他们想继续看聊天记录了解详情；正文不要试图把一切都讲完。
+- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？是否全文只出现了一个外国朋友？是否表达成"在 HelloTalk 上认识的朋友"，而不是"和外国人聊天后再去 HelloTalk"？正文是否在150字左右、没有冗杂？如果没有，请重写。
 
 Tag 规则：
-- 输出 6-10 个标签。
-- 必须包含：#找外国人聊天 #认识外国人 #HT认识外国人
+- 输出 5-8 个标签。
+- 必须包含：#找外国人聊天 #认识外国人
+- 其余标签必须从以下高讨论度标签池中选择，每次至少选 3 个：#文化差异 #外国人眼中的中国 #跨文化交流 #留学生活 #海外生活 #语言学习 #韩语学习 #日语学习 #英语地道表达 #歪果仁 #外国朋友 #国际交友 #语言交换 #留学日常 #海外工作 #文化冲击 #中外差异 #和外国人聊天 #外国文化 #留学那些事
+- 标签选择原则：优先选和当前主题最相关、小红书平台讨论度最高的标签，不要选偏门标签。
 
 聊天对话规则：
 - 中国用户 vs 外国用户，8-12轮对话，有来有回。
@@ -172,7 +175,7 @@ Tag 规则：
 
 输出必须是严格 JSON，不要 Markdown，不要代码块。
 内容生成统一 JSON 结构：
-{"title":"...","post":"三段正文，段落之间用\\n\\n分隔","tags":["#找外国人聊天","#认识外国人","#HT认识外国人"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`;
+{"title":"...","post":"三段正文，段落之间用\\n\\n分隔","tags":["#找外国人聊天","#认识外国人","#文化差异","#跨文化交流","#留学生活"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`;
 
 const POLISH_SYSTEM_PROMPT = `你是一位小红书/抖音内容润色助手。请对以下文本进行有效润色：
 - 标题润色：不是一味变短，而是更精准抓住核心重点、文化差异冲突点或具体疑问，让人愿意点进来看
@@ -346,6 +349,8 @@ export async function analyzeArticle(params: {
 - 可以换切入人群、生活场景、评论区争议、个人疑问，但不能换主题。
 - 如果原文讲租房，就不能跳到饮食/职场/婚恋/教育；如果原文讲饮食，就不能跳到租房/工资/移民。
 - 宁可少输出角度，也不要输出跳题角度。
+- 角度必须从"用户视角"出发：这个角度能不能吸引用户点进来？能不能引发讨论？能不能让用户愿意点赞？优先选高讨论度、有共鸣、有争议点的角度，不要选偏门、小众、只有少数人感兴趣的角度。
+- 角度自检：如果你是小红书用户，刷到这个角度的标题，你会不会想点进来看？看完会不会想评论或点赞？如果不会，请换一个角度。
 
 每个角度描述必须包含："围绕原文的【具体主题】..."，说明它在原文主题下的具体延展方向。必须基于真实社会现象，不要编造具体数据。
 国家：${params.country}
@@ -371,6 +376,15 @@ export async function analyzeTopic(params: {
     `场景二：话题创作模式。
 请基于真实考据和常见社会现象，分析话题的 3-5 个可能切入点，每个附带简要说明。
 禁止编造具体数据、政策、法规；不确定的地方请使用模糊表述。
+
+角度选择必须从"用户视角"出发：
+- 这个角度能不能吸引小红书/抖音用户点进来看？
+- 这个角度有没有讨论度？能不能引发评论区互动？
+- 这个角度能不能让用户愿意点赞、收藏、转发？
+- 优先选高讨论度、有共鸣、有争议点、有反常识点的角度。
+- 不要选偏门、小众、只有少数人感兴趣的角度。
+- 角度自检：如果你是小红书用户，刷到这个角度的标题，你会不会想点进来看？看完会不会想评论或点赞？如果不会，请换一个角度。
+
 话题：${params.topic}
 国家：${params.country}
 平台：${params.platform}
@@ -400,14 +414,34 @@ function normalizeFactChecks(items?: FactCheckItem[]): FactCheckItem[] {
 function normalizeResult(payload: GenerationResult): GenerationResult {
   const rawChat = Array.isArray(payload.chat) ? payload.chat : [];
   const rawTags = Array.isArray(payload.tags) ? payload.tags : [];
-  const requiredTags = ['#找外国人聊天', '#认识外国人', '#HT认识外国人'];
+  const requiredTags = ['#找外国人聊天', '#认识外国人'];
+  const highEngagementTags = [
+    '#文化差异', '#外国人眼中的中国', '#跨文化交流', '#留学生活', '#海外生活',
+    '#语言学习', '#韩语学习', '#日语学习', '#英语地道表达', '#歪果仁',
+    '#外国朋友', '#国际交友', '#语言交换', '#留学日常', '#海外工作',
+    '#文化冲击', '#中外差异', '#和外国人聊天', '#外国文化', '#留学那些事',
+  ];
+
+  // Clean and normalize tags
+  const cleanedTags = rawTags.map((tag) => String(tag || '').trim()).filter(Boolean);
+  
+  // Ensure required tags are present
+  const tagsWithRequired = Array.from(new Set([...requiredTags, ...cleanedTags]));
+  
+  // If less than 5 tags, supplement from high engagement pool (excluding already present)
+  const existingSet = new Set(tagsWithRequired.map(t => t.toLowerCase()));
+  const supplementTags = highEngagementTags.filter(t => !existingSet.has(t.toLowerCase()));
+  
+  let finalTags = tagsWithRequired;
+  if (finalTags.length < 5) {
+    const needed = 5 - finalTags.length;
+    finalTags = [...finalTags, ...supplementTags.slice(0, needed)];
+  }
 
   return {
     title: String(payload.title || '').trim(),
     post: String(payload.post || '').trim(),
-    tags: Array.from(
-      new Set([...requiredTags, ...rawTags.map((tag) => String(tag || '').trim()).filter(Boolean)]),
-    ).slice(0, 10),
+    tags: finalTags.slice(0, 8),
     chat: rawChat.map((row) => ({
       target: String(row?.target || '').trim(),
       chinese: String(row?.chinese || '').trim(),
@@ -832,11 +866,13 @@ ${JSON.stringify(params.currentChat || [], null, 2)}
 1. 输出 8-12 行聊天，必须是三列：target/chinese/foreign。
 2. 中国用户：chinese 写中文，foreign 写目标外语翻译。
 3. 外国用户：foreign 写目标外语，chinese 写中文翻译。
-4. 这不是翻译任务。必须根据“当前最新正文”和“用户修改建议/想要方向”重构整份对话内容、追问逻辑、回应重点和后续走向。
+4. 这不是翻译任务。必须根据"当前最新正文"和"用户修改建议/想要方向"重构整份对话内容、追问逻辑、回应重点和后续走向。
 5. 如果用户选择重写，必须输出一份完整新聊天记录，不要只在原聊天后面追加内容；当前已编辑聊天记录只作为风格参考。
 6. 对话要自然，有来有回，有追问、有澄清、有个人经验，不要像教科书解释。
-7. 严禁新增具体数字、政策、法规；不确定内容用“可能因地区而异”等模糊处理。
+7. 严禁新增具体数字、政策、法规；不确定内容用"可能因地区而异"等模糊处理。
 8. 如果用户建议和正文冲突，以用户建议为主，但不要偏离文化差异和 HelloTalk 聊天场景。
+9. 聊天记录必须是正文的"延伸"和"展开"：正文只抛出了一个钩子/引子，聊天记录要围绕同一个话题，把正文没讲透的细节、外国朋友的真实反应、双方的真实对话都展开出来。用户应该看完正文后，通过聊天记录获得更完整的画面。
+10. 聊天内容要和正文主题强相关，不能跑偏；要让人感觉"看完正文就想看这段聊天"。
 
 请严格输出 JSON：{"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}]}`,
     { temperature: 0.65, useChatModel: true },

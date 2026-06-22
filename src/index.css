@@ -255,6 +255,30 @@ select {
   overflow: auto;
 }
 
+/* Chat Modal Styles */
+.chat-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.chat-modal-content {
+  position: relative;
+  display: flex;
+  max-height: 90vh;
+  width: 100%;
+  max-width: 80rem;
+  flex-direction: column;
+  border-radius: 24px;
+  background: #faf7f2;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
 .mac-illustration {
   position: relative;
   height: 126px;

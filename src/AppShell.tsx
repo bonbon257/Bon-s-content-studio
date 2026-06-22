@@ -10,6 +10,7 @@ import {
   History,
   Leaf,
   Loader2,
+  Maximize2,
   MessageCircle,
   Palette as PaletteIcon,
   PenLine,
@@ -20,6 +21,7 @@ import {
   Sparkles,
   Trash2,
   User,
+  X,
   XCircle,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -757,6 +759,7 @@ function OutputResult({
   contentResearchResult,
   contentResearchLoading,
   contentResearchError,
+  chatRowCount,
   onBack,
   onCopy,
   onTitleChange,
@@ -768,6 +771,7 @@ function OutputResult({
   onReviseContent,
   onMarkFactCheck,
   onSave,
+  onOpenChatModal,
 }: {
   result: GenerationResult;
   factCheckStatuses: Record<number, FactCheckStatus>;
@@ -779,6 +783,7 @@ function OutputResult({
   contentResearchResult: GeneratedContentResearchResult | null;
   contentResearchLoading: boolean;
   contentResearchError: string;
+  chatRowCount: number;
   onBack: () => void;
   onCopy: (text: string) => void;
   onTitleChange: (value: string) => void;
@@ -790,6 +795,7 @@ function OutputResult({
   onReviseContent: (instruction: string) => Promise<boolean>;
   onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
   onSave: () => void;
+  onOpenChatModal: () => void;
 }) {
   const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean);
   const tagText = cleanTags.map((tag) => `#${tag}`).join(' ');
@@ -880,9 +886,17 @@ function OutputResult({
         )}
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[#E8E4DE] pt-4">
           <span className="rounded-full bg-[#C9EBCA] px-3 py-1 text-xs font-semibold text-[#1A1A1A]">
-            {result.post.trim().length} / 300 字
+            {result.post.trim().length} / 170 字
           </span>
           <span className="text-sm text-[#6B6B6B]">🔍 事实核查</span>
+          <button
+            type="button"
+            onClick={onOpenChatModal}
+            className="mac-mini-btn ml-auto"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            {chatRowCount > 0 ? `查看聊天记录 (${chatRowCount}条)` : '生成并查看聊天记录'}
+          </button>
         </div>
         <FactCheckPanel
           items={(result.factChecks || []) as FactCheckItem[]}
@@ -1198,6 +1212,72 @@ function ChatResult({
   );
 }
 
+function ChatModal({
+  open,
+  rows,
+  loading,
+  rowLoadingIndex,
+  onClose,
+  onChange,
+  onCopy,
+  onRegenerate,
+  onContinue,
+  onRegenerateRow,
+}: {
+  open: boolean;
+  rows: ChatRow[];
+  loading: boolean;
+  rowLoadingIndex: number | null;
+  onClose: () => void;
+  onChange: (rows: ChatRow[]) => void;
+  onCopy: (text: string) => void;
+  onRegenerate: (instruction?: string) => Promise<boolean>;
+  onContinue: (instruction?: string) => Promise<boolean>;
+  onRegenerateRow: (index: number, instruction?: string) => Promise<boolean>;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="relative flex max-h-[90vh] w-full max-w-5xl flex-col rounded-[24px] bg-[#FAF7F2] shadow-2xl"
+      >
+        <header className="flex items-center justify-between border-b border-[#E8E4DE] px-6 py-4">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="h-5 w-5 text-[#F0B8B8]" />
+            <h2 className="text-lg font-bold text-[#1A1A1A]">聊天记录</h2>
+            {rows.length > 0 && (
+              <span className="rounded-full bg-[#F5F0E8] px-2 py-0.5 text-xs text-[#6B6B6B]">
+                {rows.length} 条
+              </span>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="mac-icon-btn">
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="flex-1 overflow-auto p-6">
+          <ChatResult
+            rows={rows}
+            loading={loading}
+            rowLoadingIndex={rowLoadingIndex}
+            onChange={onChange}
+            onCopy={onCopy}
+            onRegenerate={onRegenerate}
+            onContinue={onContinue}
+            onRegenerateRow={onRegenerateRow}
+          />
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function DynamicCard({
   stage,
   angles,
@@ -1233,6 +1313,7 @@ function DynamicCard({
   onRegenerateChatRow,
   onMarkFactCheck,
   onSave,
+  onOpenChatModal,
 }: {
   stage: Stage;
   angles: Angle[];
@@ -1268,6 +1349,7 @@ function DynamicCard({
   onRegenerateChatRow: (index: number, instruction?: string) => Promise<boolean>;
   onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
   onSave: () => void;
+  onOpenChatModal: () => void;
 }) {
   return (
     <section className="mac-card mac-dynamic-card">
@@ -1285,45 +1367,31 @@ function DynamicCard({
         )}
         {stage === 'generating' && <GeneratingState />}
         {stage === 'result' && (
-          <div className="mac-result-workbench">
-            <div className="mac-output-column">
-              <OutputResult
-                result={result}
-                factCheckStatuses={factCheckStatuses}
-                polishChanges={polishChanges}
-                polishingField={polishingField}
-                revisingContent={revisingContent}
-                canRestorePost={canRestorePost}
-                contentResearchQuestion={contentResearchQuestion}
-                contentResearchResult={contentResearchResult}
-                contentResearchLoading={contentResearchLoading}
-                contentResearchError={contentResearchError}
-                onBack={onBack}
-                onCopy={onCopy}
-                onTitleChange={onTitleChange}
-                onPostChange={onPostChange}
-                onRestorePost={onRestorePost}
-                onContentResearchQuestionChange={onContentResearchQuestionChange}
-                onResearchContent={onResearchContent}
-                onPolishField={onPolishField}
-                onReviseContent={onReviseContent}
-                onMarkFactCheck={onMarkFactCheck}
-                onSave={onSave}
-              />
-            </div>
-            <aside className="mac-chat-column">
-              <ChatResult
-                rows={result.chat}
-                loading={chatLoading}
-                rowLoadingIndex={rowLoadingIndex}
-                onChange={onChatChange}
-                onCopy={onCopy}
-                onRegenerate={onRegenerateChat}
-                onContinue={onContinueChat}
-                onRegenerateRow={onRegenerateChatRow}
-              />
-            </aside>
-          </div>
+          <OutputResult
+            result={result}
+            factCheckStatuses={factCheckStatuses}
+            polishChanges={polishChanges}
+            polishingField={polishingField}
+            revisingContent={revisingContent}
+            canRestorePost={canRestorePost}
+            contentResearchQuestion={contentResearchQuestion}
+            contentResearchResult={contentResearchResult}
+            contentResearchLoading={contentResearchLoading}
+            contentResearchError={contentResearchError}
+            chatRowCount={result.chat?.length || 0}
+            onBack={onBack}
+            onCopy={onCopy}
+            onTitleChange={onTitleChange}
+            onPostChange={onPostChange}
+            onRestorePost={onRestorePost}
+            onContentResearchQuestionChange={onContentResearchQuestionChange}
+            onResearchContent={onResearchContent}
+            onPolishField={onPolishField}
+            onReviseContent={onReviseContent}
+            onMarkFactCheck={onMarkFactCheck}
+            onSave={onSave}
+            onOpenChatModal={onOpenChatModal}
+          />
         )}
       </AnimatePresence>
     </section>
@@ -2108,6 +2176,7 @@ export default function AppShell() {
   const [contentResearchResult, setContentResearchResult] = useState<GeneratedContentResearchResult | null>(null);
   const [contentResearchLoading, setContentResearchLoading] = useState(false);
   const [contentResearchError, setContentResearchError] = useState('');
+  const [chatModalOpen, setChatModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
@@ -2749,6 +2818,18 @@ export default function AppShell() {
     <div className="mac-page-shell">
       <AnimatePresence>{toast && <Toast message={toast} />}</AnimatePresence>
       {isHostedRuntime() && !appPassword && <PasswordGate onUnlock={handleUnlock} />}
+      <ChatModal
+        open={chatModalOpen}
+        rows={result.chat}
+        loading={chatLoading}
+        rowLoadingIndex={rowLoadingIndex}
+        onClose={() => setChatModalOpen(false)}
+        onChange={(rows) => setResult((prev) => ({ ...prev, chat: rows }))}
+        onCopy={handleCopy}
+        onRegenerate={(instruction) => handleRegenerateChat('fromPost', instruction)}
+        onContinue={(instruction) => handleRegenerateChat('continueFromEdited', instruction)}
+        onRegenerateRow={handleRegenerateChatRow}
+      />
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
@@ -2953,6 +3034,7 @@ export default function AppShell() {
                   setFactCheckStatuses((prev) => ({ ...prev, [index]: status }))
                 }
                 onSave={handleManualSave}
+                onOpenChatModal={() => setChatModalOpen(true)}
               />
             </div>
           )}
