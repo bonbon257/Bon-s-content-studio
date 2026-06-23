@@ -488,16 +488,17 @@ const APP_RECOMMENDATION_SYSTEM_PROMPT = `你是小红书真人分享类博主�
 核心心法：
 - 角度：站在"想搜这个软件的人"的视角写。看完愿意点开APP Store去下载，而不是觉得"这是广告"。
 - 真人感优先：开头给一点真实生活背景，例如"马上要去日本玩想救一下日语""最近被外教课打击到想加练口语"等，不要太长，但要让读者觉得"这就是我"。
-- 全文像发给朋友的安利语气，不要像电商详情页或者营销号。
+- 全文像发给朋友的安利语气，碎碎念风格，像日常吐槽+分享，不要像电商详情页或者营销号。
+- 产品体验要多写：不要只写"这个APP好用"，要写具体怎么用、什么场景下用、解决了什么具体问题、用的时候有什么感受。
 
 硬性要求：
 1. 只输出小红书贴文。
 2. 标题必须和用户输入的主题强相关，不超过 20 个中文字符；不要起得像广告标题。
-3. 正文不含空格和标点时大约 150-220 字，最低 100 字。
-4. 正文必须采用固定结构：先写一小段真实背景/小困扰，再用"1、2、3"分别写至少 3 个 APP 的优点和适合场景；每个 APP 都要有明确优点，不能只列名字。
+3. 正文不含空格和标点时大约 220-280 字，最低 200 字。要碎碎念、有细节、有真实感受，不要干巴巴列功能。
+4. 正文必须采用固定结构：先写一小段真实背景/小困扰（碎碎念风格），再用"1、2、3"分别写至少 3 个 APP 的优点和适合场景；每个 APP 都要有明确优点，不能只列名字。每个 APP 的体验描述要具体，比如"我一般在地铁上刷它的每日一句，比背单词软件轻松多了"。
 5. 全文必须自然提到至少 3 个 APP，HelloTalk 必须出现，且必须排在第 1 个或第 2 个被提到，不允许排在第 3 个及以后；其它 APP 按不同功能分工，禁止出现同类型跨国交友/陌生人语言交换竞品（Tandem、YeeTalk、Yeetalk、Hello Pal、Speaky、Ablo、MEEFF、Slowly、Bottled）。
 6. 不要写"APP合集"这种词，不要像工具号测评；即使使用 1、2、3 结构，也要像真人在分享自己怎么用。
-7. 标签至少 3 个，必须包含 #认识外国人 #找外国人聊天，其余标签贴合主题。
+7. 标签至少 5 个，必须包含 #认识外国人 #找外国人聊天，其余标签贴合主题（如 #语言学习 #留学生活 #外语app 等）。
 8. 严格禁止出现以下违禁词（出现一次都不行，请用同义换说法）：最、神器、推荐、种草、必备、安利、爆款、第一、首选、绝绝子、yyds、强推、力荐、好物、必入、首推、神级、无敌、巅峰。
    - 把"推荐"换成"分享 / 我自己在用 / 我用得最顺手的几个"；
    - 把"神器"换成"挺好用的小工具 / 顺手的小帮手"；
@@ -506,6 +507,7 @@ const APP_RECOMMENDATION_SYSTEM_PROMPT = `你是小红书真人分享类博主�
    - 标题和正文都要避开以上词。
 9. 不要写"下载""点击""快去用""一键""通通拿下""赶紧冲"等硬广动作。
 10. 不要写错字、乱码、堆叠特殊符号、AI腔；可以用一个表情，但不要堆 emoji。
+11. 碎碎念风格示例："说实话我一开始也没抱太大期望，就是随手下了试试，结果用了两周发现...""有个功能我特别喜欢，就是..."
 
 输出严格 JSON：
 {"title":"不超过20字的小红书标题","post":"小红书正文，可以用换行分段","tags":["#认识外国人","#找外国人聊天","#..."]}`;
@@ -557,8 +559,8 @@ function normalizeAppRecommendation(payload: AppRecommendationResult, topic: str
   }
   post = ensureHelloTalkMention(post, topic);
 
-  if (countChineseTextLength(post) < 100) {
-    post = `${post}\n\n说回正题，${topic || '这件事'}对我来说本来就是边用边摸索的过程，工具只是顺手的帮手，关键还是每天有没有真的用上。如果你也在折腾这块，欢迎在评论区聊聊你现在是怎么练的，我也想抄抄作业。`;
+  if (countChineseTextLength(post) < 200) {
+    post = `${post}\n\n说回正题，${topic || '这件事'}对我来说本来就是边用边摸索的过程，工具只是顺手的帮手，关键还是每天有没有真的用上。说实话我一开始也没抱太大期望，就是随手下了试试，结果用了两周发现确实比我想象中顺手。如果你也在折腾这块，欢迎在评论区聊聊你现在是怎么练的，我也想抄抄作业。`;
   }
 
   const rawTags = Array.isArray(payload?.tags) ? payload.tags : [];
@@ -596,7 +598,7 @@ ${params.material?.trim() || '用户未提供素材，请按常识选择不属�
 - 是否自然提到至少 3 个 APP？
 - HelloTalk 是否出现，且在第 1 个或第 2 个被提到？
 - 是否避开 Tandem、YeeTalk 等同类跨国交友/陌生人社交/语言交换竞品？
-- 正文去掉空格和标点后是否至少 100 字，约 150-220 字？
+- 正文去掉空格和标点后是否至少 200 字，约 220-280 字？
 - 标题是否不超过 20 字？
 - 标签是否包含 #认识外国人 #找外国人聊天？
 - 标题和正文是否避开违禁词：最、神器、推荐、种草、必备、安利等？
@@ -835,6 +837,36 @@ ${params.original}
     polished: polished || params.original,
     changes,
   };
+}
+
+export async function regenerateTitle(params: {
+  config: LlmConfig;
+  post: string;
+  currentTitle: string;
+  platform: Platform;
+  preferenceContext?: string;
+}): Promise<{ title: string }> {
+  const payload = await callChatJson<{ title: string }>(
+    params.config,
+    `请根据以下正文内容，重新生成一个完全不同的小红书/抖音标题。
+
+要求：
+- 标题必须和正文内容强相关，精准抓住正文里最值得点进来的重点。
+- 标题风格要真人、不营销、不夸张、不AI味。
+- 标题长度 14-24 字优先。
+- 问句优先，但如果陈述句更有点击欲，可以使用陈述句。
+- 必须与当前标题完全不同，不要只是换几个字或调整语序。
+- 要从新的切入点或角度提炼标题，让用户刷到后愿意点进来看。
+
+当前标题（请避免雷同）：${params.currentTitle}
+
+正文：
+${params.post}
+
+请严格输出 JSON：{"title":"新的标题"}`,
+    { systemPrompt: SYSTEM_PROMPT, temperature: 0.85, preferenceContext: params.preferenceContext },
+  );
+  return { title: String(payload?.title || params.currentTitle).trim() };
 }
 
 function normalizeChatRows(rows?: ChatRow[]): ChatRow[] {

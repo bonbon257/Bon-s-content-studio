@@ -56,6 +56,7 @@ import {
   polishText,
   regenerateChat,
   regenerateChatRow,
+  regenerateTitle,
   researchGeneratedContent,
   researchTopic,
   reviseGeneratedContent,
@@ -761,6 +762,7 @@ function OutputResult({
   factCheckStatuses,
   polishChanges,
   polishingField,
+  titleRegenerating,
   revisingContent,
   canRestorePost,
   contentResearchQuestion,
@@ -776,6 +778,7 @@ function OutputResult({
   onContentResearchQuestionChange,
   onResearchContent,
   onPolishField,
+  onRegenerateTitle,
   onReviseContent,
   onMarkFactCheck,
   onSave,
@@ -785,6 +788,7 @@ function OutputResult({
   factCheckStatuses: Record<number, FactCheckStatus>;
   polishChanges: string[];
   polishingField: 'title' | 'post' | null;
+  titleRegenerating: boolean;
   revisingContent: boolean;
   canRestorePost: boolean;
   contentResearchQuestion: string;
@@ -800,6 +804,7 @@ function OutputResult({
   onContentResearchQuestionChange: (value: string) => void;
   onResearchContent: () => Promise<void>;
   onPolishField: (field: 'title' | 'post') => void;
+  onRegenerateTitle: () => Promise<void>;
   onReviseContent: (instruction: string) => Promise<boolean>;
   onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
   onSave: () => void;
@@ -835,11 +840,11 @@ function OutputResult({
             <button type="button" onClick={() => onCopy(result.title)} className="mac-mini-btn">
               <Copy className="h-3.5 w-3.5" /> 复制
             </button>
-            <button type="button" onClick={() => onPolishField('title')} className="mac-mini-btn" disabled={polishingField !== null}>
+            <button type="button" onClick={() => onPolishField('title')} className="mac-mini-btn" disabled={polishingField !== null || titleRegenerating}>
               {polishingField === 'title' ? '润色中...' : '✨ 润色'}
             </button>
-            <button type="button" onClick={() => onPolishField('title')} className="mac-mini-btn">
-              <RefreshCw className="h-3.5 w-3.5" /> 重来
+            <button type="button" onClick={() => onRegenerateTitle()} className="mac-mini-btn" disabled={titleRegenerating || polishingField !== null}>
+              {titleRegenerating ? '生成中...' : <><RefreshCw className="h-3.5 w-3.5" /> 重来</>}
             </button>
           </div>
         </header>
@@ -1295,6 +1300,7 @@ function DynamicCard({
   factCheckStatuses,
   polishChanges,
   polishingField,
+  titleRegenerating,
   revisingContent,
   chatLoading,
   rowLoadingIndex,
@@ -1315,6 +1321,7 @@ function DynamicCard({
   onContentResearchQuestionChange,
   onResearchContent,
   onPolishField,
+  onRegenerateTitle,
   onReviseContent,
   onRegenerateChat,
   onContinueChat,
@@ -1331,6 +1338,7 @@ function DynamicCard({
   factCheckStatuses: Record<number, FactCheckStatus>;
   polishChanges: string[];
   polishingField: 'title' | 'post' | null;
+  titleRegenerating: boolean;
   revisingContent: boolean;
   chatLoading: boolean;
   rowLoadingIndex: number | null;
@@ -1351,6 +1359,7 @@ function DynamicCard({
   onContentResearchQuestionChange: (value: string) => void;
   onResearchContent: () => Promise<void>;
   onPolishField: (field: 'title' | 'post') => void;
+  onRegenerateTitle: () => Promise<void>;
   onReviseContent: (instruction: string) => Promise<boolean>;
   onRegenerateChat: (instruction?: string) => Promise<boolean>;
   onContinueChat: (instruction?: string) => Promise<boolean>;
@@ -1380,6 +1389,7 @@ function DynamicCard({
             factCheckStatuses={factCheckStatuses}
             polishChanges={polishChanges}
             polishingField={polishingField}
+            titleRegenerating={titleRegenerating}
             revisingContent={revisingContent}
             canRestorePost={canRestorePost}
             contentResearchQuestion={contentResearchQuestion}
@@ -1395,6 +1405,7 @@ function DynamicCard({
             onContentResearchQuestionChange={onContentResearchQuestionChange}
             onResearchContent={onResearchContent}
             onPolishField={onPolishField}
+            onRegenerateTitle={onRegenerateTitle}
             onReviseContent={onReviseContent}
             onMarkFactCheck={onMarkFactCheck}
             onSave={onSave}
@@ -2175,6 +2186,7 @@ export default function AppShell() {
   const [factCheckStatuses, setFactCheckStatuses] = useState<Record<number, FactCheckStatus>>({});
   const [loading, setLoading] = useState<'analyze' | 'generate' | null>(null);
   const [polishingField, setPolishingField] = useState<'title' | 'post' | null>(null);
+  const [titleRegenerating, setTitleRegenerating] = useState(false);
   const [revisingContent, setRevisingContent] = useState(false);
   const [polishChanges, setPolishChanges] = useState<string[]>([]);
   const [postHistory, setPostHistory] = useState<string[]>([]);
@@ -2402,6 +2414,29 @@ export default function AppShell() {
       showToast('已恢复正文上一版');
       return prev.slice(0, -1);
     });
+  }
+
+  async function handleRegenerateTitle() {
+    if (!result.post.trim()) {
+      showToast('请先生成内容');
+      return;
+    }
+    setTitleRegenerating(true);
+    try {
+      const { title } = await regenerateTitle({
+        config,
+        post: result.post,
+        currentTitle: result.title,
+        platform,
+        preferenceContext: contextString,
+      });
+      setResult((prev) => ({ ...prev, title }));
+      showToast('已重新生成标题');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '重新生成标题失败');
+    } finally {
+      setTitleRegenerating(false);
+    }
   }
 
   async function handlePolishField(field: 'title' | 'post') {
@@ -3034,6 +3069,7 @@ export default function AppShell() {
                 factCheckStatuses={factCheckStatuses}
                 polishChanges={polishChanges}
                 polishingField={polishingField}
+                titleRegenerating={titleRegenerating}
                 revisingContent={revisingContent}
                 chatLoading={chatLoading}
                 rowLoadingIndex={rowLoadingIndex}
@@ -3060,6 +3096,7 @@ export default function AppShell() {
                 }}
                 onResearchContent={handleResearchGeneratedContent}
                 onPolishField={handlePolishField}
+                onRegenerateTitle={handleRegenerateTitle}
                 onReviseContent={handleReviseContent}
                 onRegenerateChat={(instruction) => handleRegenerateChat('fromPost', instruction)}
                 onContinueChat={(instruction) => handleRegenerateChat('continueFromEdited', instruction)}
