@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   History,
+  ImageIcon,
   Leaf,
   Loader2,
   Maximize2,
@@ -28,6 +29,7 @@ import {
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
+import { CoverGenerator } from './components/CoverGenerator';
 import { HistoryPanel } from './components/HistoryPanel';
 import { PreferencesDrawer } from './components/PreferencesDrawer';
 import { ResearchView } from './components/ResearchView';
@@ -195,12 +197,14 @@ function TopBar({
   onSettings,
   onTheme,
   onPreferences,
+  onCover,
 }: {
   active: AppTab;
   onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
   onSettings: () => void;
   onTheme: () => void;
   onPreferences: () => void;
+  onCover: () => void;
 }) {
   return (
     <header className="mac-topbar">
@@ -224,6 +228,9 @@ function TopBar({
         <div className="mac-top-avatar">B</div>
         <button type="button" onClick={onPreferences} className="mac-icon-btn" title="我的偏好">
           <Brain className="h-5 w-5" />
+        </button>
+        <button type="button" onClick={onCover} className="mac-icon-btn" title="封面生成">
+          <ImageIcon className="h-5 w-5" />
         </button>
         <button type="button" onClick={onTheme} className="mac-icon-btn" title="页面设计">
           <PaletteIcon className="h-5 w-5" />
@@ -783,6 +790,7 @@ function OutputResult({
   onMarkFactCheck,
   onSave,
   onOpenChatModal,
+  onOpenCover,
 }: {
   result: GenerationResult;
   factCheckStatuses: Record<number, FactCheckStatus>;
@@ -809,6 +817,7 @@ function OutputResult({
   onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
   onSave: () => void;
   onOpenChatModal: () => void;
+  onOpenCover: () => void;
 }) {
   const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean);
   const tagText = cleanTags.map((tag) => `#${tag}`).join(' ');
@@ -904,8 +913,16 @@ function OutputResult({
           <span className="text-sm text-[#6B6B6B]">🔍 事实核查</span>
           <button
             type="button"
-            onClick={onOpenChatModal}
+            onClick={onOpenCover}
             className="mac-mini-btn ml-auto"
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+            生成封面
+          </button>
+          <button
+            type="button"
+            onClick={onOpenChatModal}
+            className="mac-mini-btn"
           >
             <Maximize2 className="h-3.5 w-3.5" />
             {chatRowCount > 0 ? `查看聊天记录 (${chatRowCount}条)` : '生成并查看聊天记录'}
@@ -1329,6 +1346,7 @@ function DynamicCard({
   onMarkFactCheck,
   onSave,
   onOpenChatModal,
+  onOpenCover,
 }: {
   stage: Stage;
   angles: Angle[];
@@ -1367,6 +1385,7 @@ function DynamicCard({
   onMarkFactCheck: (index: number, status: FactCheckStatus) => void;
   onSave: () => void;
   onOpenChatModal: () => void;
+  onOpenCover: () => void;
 }) {
   return (
     <section className="mac-card mac-dynamic-card">
@@ -1410,6 +1429,7 @@ function DynamicCard({
             onMarkFactCheck={onMarkFactCheck}
             onSave={onSave}
             onOpenChatModal={onOpenChatModal}
+            onOpenCover={onOpenCover}
           />
         )}
       </AnimatePresence>
@@ -2200,6 +2220,7 @@ export default function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
   const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
   const [themeDraft, setThemeDraft] = useState<ThemeSettings>(() => loadThemeSettings());
@@ -2894,7 +2915,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onCover={() => setCoverOpen(true)} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
@@ -2917,6 +2938,15 @@ export default function AppShell() {
             onResetManual={resetManual}
             onResetAuto={resetAuto}
           />
+
+          {coverOpen && (
+            <div className="fixed inset-0 z-50 bg-[#FAF7F2]">
+              <CoverGenerator
+                initialTitle={result.title}
+                onClose={() => setCoverOpen(false)}
+              />
+            </div>
+          )}
 
           {active === 'history' ? (
             <div className="mac-content-scroll">
@@ -3106,6 +3136,7 @@ export default function AppShell() {
                 }
                 onSave={handleManualSave}
                 onOpenChatModal={() => setChatModalOpen(true)}
+                onOpenCover={() => setCoverOpen(true)}
               />
             </div>
           )}
