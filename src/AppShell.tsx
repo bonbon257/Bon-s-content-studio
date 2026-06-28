@@ -47,6 +47,7 @@ import { useHistory } from './hooks/useHistory';
 import { usePreferences } from './hooks/usePreferences';
 import {
   analyzeArticle,
+  analyzeArticleWithComments,
   analyzeTopic,
   COUNTRIES,
   generateAppRecommendation,
@@ -284,12 +285,14 @@ function InputCard({
   scene,
   article,
   topic,
+  comments,
   country,
   platform,
   loading,
   error,
   onArticleChange,
   onTopicChange,
+  onCommentsChange,
   onCountryChange,
   onPlatformChange,
   onAnalyze,
@@ -298,12 +301,14 @@ function InputCard({
   scene: Scene;
   article: string;
   topic: string;
+  comments: string;
   country: Country;
   platform: Platform;
   loading: 'analyze' | 'generate' | null;
   error: string;
   onArticleChange: (value: string) => void;
   onTopicChange: (value: string) => void;
+  onCommentsChange: (value: string) => void;
   onCountryChange: (value: Country) => void;
   onPlatformChange: (value: Platform) => void;
   onAnalyze: () => void;
@@ -349,22 +354,44 @@ function InputCard({
 
       <div className="mt-5">
         {scene === 'article' ? (
-          <label>
-            <span className="mb-2 flex items-center justify-between">
-              <span className="mac-label !mb-0">原文</span>
-              {article.trim() && (
-                <button type="button" onClick={onClear} className="mac-clear-btn">
-                  一键清空
-                </button>
-              )}
-            </span>
-            <textarea
-              value={article}
-              onChange={(event) => onArticleChange(event.target.value)}
-              placeholder="粘贴你的文章到这里..."
-              className="mac-textarea"
-            />
-          </label>
+          <>
+            <label>
+              <span className="mb-2 flex items-center justify-between">
+                <span className="mac-label !mb-0">原文</span>
+                {article.trim() && (
+                  <button type="button" onClick={onClear} className="mac-clear-btn">
+                    一键清空
+                  </button>
+                )}
+              </span>
+              <textarea
+                value={article}
+                onChange={(event) => onArticleChange(event.target.value)}
+                placeholder="粘贴你的文章到这里..."
+                className="mac-textarea"
+              />
+            </label>
+            <label className="mt-3 block">
+              <span className="mb-2 flex items-center justify-between">
+                <span className="mac-label !mb-0">💬 评论区评论（可选）</span>
+                {comments.trim() && (
+                  <button type="button" onClick={() => onCommentsChange('')} className="mac-clear-btn">
+                    清空
+                  </button>
+                )}
+              </span>
+              <p className="mb-1.5 text-xs text-[#6B6B6B]">
+                从爆文评论区复制多条评论粘贴到这里，程序会从评论中提取高讨论度角度
+              </p>
+              <textarea
+                value={comments}
+                onChange={(event) => onCommentsChange(event.target.value)}
+                placeholder="每条评论占一行，例如：&#10;哈哈哈真的假的，我们那边完全不一样&#10;我也是！在国外待了三年深有体会&#10;楼上的经历太真实了吧"
+                className="mac-textarea !min-h-[100px]"
+                rows={4}
+              />
+            </label>
+          </>
         ) : (
           <label>
             <span className="mb-2 flex items-center justify-between">
@@ -2198,6 +2225,7 @@ export default function AppShell() {
   const [active, setActive] = useState<AppTab>('article');
   const [article, setArticle] = useState('');
   const [topic, setTopic] = useState('');
+  const [comments, setComments] = useState('');
   const [country, setCountry] = useState<Country>('韩国');
   const [platform, setPlatform] = useState<Platform>('小红书');
   const [angles, setAngles] = useState<Angle[]>([]);
@@ -2330,7 +2358,9 @@ export default function AppShell() {
       );
       const nextAngles =
         active === 'article'
-          ? await analyzeArticle({ config, article, country, platform, viralSkill, preferenceContext: contextString })
+          ? comments.trim()
+            ? await analyzeArticleWithComments({ config, article, comments, country, platform, viralSkill, preferenceContext: contextString })
+            : await analyzeArticle({ config, article, country, platform, viralSkill, preferenceContext: contextString })
           : await analyzeTopic({ config, topic, country, platform, viralSkill, preferenceContext: contextString });
       setAngles(nextAngles);
       setSelectedAngleId(nextAngles[0]?.id ?? null);
@@ -3063,6 +3093,7 @@ export default function AppShell() {
                 scene={scene}
                 article={article}
                 topic={topic}
+                comments={comments}
                 country={country}
                 platform={platform}
                 loading={loading}
@@ -3075,6 +3106,7 @@ export default function AppShell() {
                   setTopic(value);
                   resetWork();
                 }}
+                onCommentsChange={setComments}
                 onCountryChange={(value) => {
                   setCountry(value);
                   resetWork();

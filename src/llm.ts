@@ -373,6 +373,54 @@ ${params.article}`,
   return normalizeAngles(payload);
 }
 
+export async function analyzeArticleWithComments(params: {
+  config: LlmConfig;
+  article: string;
+  comments: string;
+  country: Country;
+  platform: Platform;
+  viralSkill?: string;
+  preferenceContext?: string;
+}): Promise<Angle[]> {
+  const payload = await callChatJson<{ angles: Angle[] }>(
+    params.config,
+    `场景一：文章改写 + 评论区挖掘模式。
+
+你拿到了一篇爆文和它的评论区精选评论。你的任务是从"评论区的真实讨论"中提取最有讨论潜力的角度。
+
+第一步：分析评论区，找出：
+1. 评论区争论最激烈的观点是什么？（多人反驳、意见对立）
+2. 评论区共鸣最强的观点是什么？（多人附和、现身说法）
+3. 评论区最常见的好奇/疑问是什么？（"真的假的？""为什么？"）
+4. 评论区有没有意想不到的视角或亲身经历？（真实故事、反常识分享）
+5. 评论区有没有"吐槽"或"扎心"的内容？（情绪共鸣点）
+
+第二步：锁定原文主题锚点，确保每个角度都围绕原文核心主题，不能跳题。
+
+第三步：生成 3-5 个角度，要求：
+- 至少一半的角度必须直接来源于评论区的讨论（标题或描述中要体现评论区的核心观点）
+- 剩余角度可以基于原文主题延伸，但也要和评论区讨论方向一致
+- 每个角度必须能回答："它和原文主题锚点有什么直接关系？"
+- 角度必须从"用户视角"出发：能不能吸引用户点进来？能不能引发讨论？能不能让用户愿意点赞？
+- 角度自检：如果你是小红书用户，刷到这个角度的标题，你会不会想点进来看？看完会不会想评论或点赞？如果不会，请换一个角度。
+
+每个角度描述中用【评论区】标记来源于评论的角度，例如："围绕原文的【具体主题】，【评论区】有人提到..."
+
+国家：${params.country}
+平台：${params.platform}
+目标外语：${LANGUAGE_MAP[params.country]}
+${formatViralSkill(params.viralSkill)}
+返回格式：{"angles":[{"id":1,"title":"角度名","description":"围绕原文的【具体主题】..."}]}
+原文：
+${params.article}
+
+评论区精选评论：
+${params.comments}`,
+    { preferenceContext: params.preferenceContext },
+  );
+  return normalizeAngles(payload);
+}
+
 export async function analyzeTopic(params: {
   config: LlmConfig;
   topic: string;
