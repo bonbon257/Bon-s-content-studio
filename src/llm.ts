@@ -86,6 +86,8 @@ function getChatConfig(config: LlmConfig): LlmConfig {
   const chatApiKey = config.chatApiKey?.trim();
   const chatModel = config.chatModel?.trim();
   const chatBaseUrl = config.chatBaseUrl?.trim();
+  // 没有配置 Chat 模型相关参数，直接使用默认 config
+  if (!chatApiKey && !chatModel && !chatBaseUrl) return config;
   if (shouldUseCloudProxy()) {
     return {
       ...config,
@@ -93,7 +95,6 @@ function getChatConfig(config: LlmConfig): LlmConfig {
       model: chatModel || config.model,
     };
   }
-  if (!chatApiKey && !chatModel) return config;
   if (chatApiKey && !chatModel) {
     throw new Error('聊天模型已填写 Chat API Key，但缺少 Chat Model。请在配置面板填写豆包的模型名或 endpoint id。');
   }
@@ -233,6 +234,9 @@ function isLocalRuntime() {
 }
 
 function shouldUseCloudProxy() {
+  // 静态文件打开（file://）或非 localhost 但无 API 后端时，不走云代理
+  if (typeof window === 'undefined') return false;
+  if (window.location.protocol === 'file:') return false;
   return !isLocalRuntime();
 }
 
@@ -256,9 +260,13 @@ function extractJson<T>(text: string): T {
   } catch {
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) {
-      throw new Error('模型返回内容不是有效 JSON，请重试或更换模型。');
+      throw new Error(`模型返回内容不是有效 JSON，请重试或更换模型。返回内容前100字：${cleaned.slice(0, 100)}`);
     }
-    return JSON.parse(match[0]) as T;
+    try {
+      return JSON.parse(match[0]) as T;
+    } catch {
+      throw new Error(`模型返回的 JSON 解析失败，请重试或更换模型。返回内容前100字：${cleaned.slice(0, 100)}`);
+    }
   }
 }
 

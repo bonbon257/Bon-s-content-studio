@@ -16,15 +16,22 @@ function getHeader(req: { headers?: Record<string, string | string[] | undefined
 
 function resolveProvider(body: ChatRequest) {
   const useChatModel = Boolean(body.useChatModel);
+  const chatApiKey = process.env.CHAT_LLM_API_KEY?.trim();
+  const chatBaseUrl = process.env.CHAT_LLM_BASE_URL?.trim();
+  const chatModel = process.env.CHAT_LLM_MODEL?.trim();
+  const defaultApiKey = process.env.LLM_API_KEY?.trim();
+  const defaultBaseUrl = process.env.LLM_BASE_URL?.trim();
+  const defaultModel = process.env.LLM_MODEL?.trim();
+
   const apiKey = useChatModel
-    ? process.env.CHAT_LLM_API_KEY || process.env.LLM_API_KEY
-    : process.env.LLM_API_KEY;
+    ? chatApiKey || defaultApiKey
+    : defaultApiKey;
   const baseUrl = useChatModel
-    ? process.env.CHAT_LLM_BASE_URL || process.env.LLM_BASE_URL || DEFAULT_BASE_URL
-    : process.env.LLM_BASE_URL || DEFAULT_BASE_URL;
+    ? chatBaseUrl || defaultBaseUrl || DEFAULT_BASE_URL
+    : defaultBaseUrl || DEFAULT_BASE_URL;
   const model = useChatModel
-    ? process.env.CHAT_LLM_MODEL || process.env.LLM_MODEL || body.model
-    : process.env.LLM_MODEL || body.model;
+    ? chatModel || defaultModel || body.model
+    : defaultModel || body.model;
 
   return {
     apiKey,
