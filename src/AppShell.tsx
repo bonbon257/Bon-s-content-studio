@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   History,
+  Home,
   ImageIcon,
   Leaf,
   Loader2,
@@ -30,6 +31,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
 import { CoverGenerator } from './components/CoverGenerator';
+import { HomePage } from './components/HomePage';
 import { HistoryPanel } from './components/HistoryPanel';
 import { PreferencesDrawer } from './components/PreferencesDrawer';
 import { ResearchView } from './components/ResearchView';
@@ -79,7 +81,7 @@ import type {
 } from './types';
 import { buildViralSkillContext } from './viralSkill';
 
-type AppTab = 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
+type AppTab = 'home' | 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
 type Stage = 'empty' | 'angles' | 'generating' | 'result';
 
 const platforms: Platform[] = ['小红书', '抖音'];
@@ -87,6 +89,7 @@ const VIRAL_LIBRARY_KEY = 'ht-viral-examples-library';
 const APP_PASSWORD_KEY = 'ht-app-password';
 
 const tabs: { key: Exclude<AppTab, 'history'>; label: string; icon: typeof PenLine }[] = [
+  { key: 'home', label: '工作台', icon: Home },
   { key: 'article', label: '文章改写', icon: PenLine },
   { key: 'topic', label: '话题创作', icon: Sparkles },
   { key: 'research', label: '资料检索', icon: Search },
@@ -2222,7 +2225,7 @@ function MobileBottomNav({
 }
 
 export default function AppShell() {
-  const [active, setActive] = useState<AppTab>('article');
+  const [active, setActive] = useState<AppTab>('home');
   const [article, setArticle] = useState('');
   const [topic, setTopic] = useState('');
   const [comments, setComments] = useState('');
@@ -2978,7 +2981,11 @@ export default function AppShell() {
             </div>
           )}
 
-          {active === 'history' ? (
+          {active === 'home' ? (
+            <div className="mac-content-scroll">
+              <HomePage onNavigate={(tab) => setActive(tab as AppTab)} />
+            </div>
+          ) : active === 'history' ? (
             <div className="mac-content-scroll">
               <div className="mac-card p-6">
                 <HistoryPanel
