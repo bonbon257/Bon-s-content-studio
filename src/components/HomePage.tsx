@@ -219,137 +219,39 @@ export function HomePage({
         ))}
       </div>
 
-      {/* Calendar + Sidebar */}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        {/* Calendar */}
-        <div className="rounded-2xl border border-[#E8E6F0]/60 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <button type="button" onClick={prevMonth} className="rounded-lg p-2 transition hover:bg-[#F5F4FA]">
-              ←
-            </button>
-            <h2 className="text-base font-bold text-[#2D2B55]">{monthName}</h2>
-            <button type="button" onClick={nextMonth} className="rounded-lg p-2 transition hover:bg-[#F5F4FA]">
-              →
-            </button>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {weekDayNames.map((name) => (
-              <div key={name} className="py-2 text-xs font-medium text-[#8E8BA8]">
-                {name}
-              </div>
-            ))}
-            {calendarDays.map((day, idx) => {
-              if (day === null) return <div key={`pad-${idx}`} />;
-
-              const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-              const isToday = dateStr === todayStr;
-              const isSelected = dateStr === selectedDate;
-              const hasEntries = entriesByDate[dateStr]?.length > 0;
-
-              return (
-                <button
-                  key={dateStr}
-                  type="button"
-                  onClick={() => handleDayClick(day)}
-                  className={`relative flex h-10 flex-col items-center justify-center rounded-xl text-sm transition ${
-                    isSelected
-                      ? 'bg-[#7C6BFF] text-white shadow-md shadow-[#7C6BFF]/25'
-                      : isToday
-                        ? 'bg-[#7C6BFF]/10 text-[#7C6BFF] font-bold'
-                        : 'text-[#2D2B55] hover:bg-[#F5F4FA]'
-                  }`}
-                >
-                  {day}
-                  {hasEntries && !isSelected && (
-                    <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-[#7FD99F]" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Selected date entries */}
-          {selectedDate && (
-            <div className="mt-4 border-t border-[#E8E6F0]/60 pt-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-[#2D2B55]">{selectedDate} 的工作记录</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(!showAddForm)}
-                  className="flex items-center gap-1 rounded-lg bg-[#7C6BFF]/10 px-3 py-1.5 text-xs font-semibold text-[#7C6BFF] transition hover:bg-[#7C6BFF]/20"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  添加
-                </button>
-              </div>
-
-              {showAddForm && (
-                <div className="mt-3 space-y-2 rounded-xl bg-[#F5F4FA] p-3">
-                  <div className="flex gap-2">
-                    <select
-                      value={newType}
-                      onChange={(e) => setNewType(e.target.value)}
-                      className="rounded-lg border border-[#E8E6F0]/60 bg-white px-2 py-1.5 text-xs text-[#2D2B55]"
-                    >
-                      {Object.entries(typeLabels).map(([k, v]) => (
-                        <option key={k} value={k}>{v}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <textarea
-                    value={newContent}
-                    onChange={(e) => setNewContent(e.target.value)}
-                    placeholder="输入工作内容..."
-                    className="w-full rounded-lg border border-[#E8E6F0]/60 bg-white px-3 py-2 text-sm text-[#2D2B55] placeholder-[#B8B5CC]"
-                    rows={2}
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setShowAddForm(false); setNewContent(''); }}
-                      className="rounded-lg px-3 py-1.5 text-xs text-[#8E8BA8] transition hover:bg-[#E8E6F0]/40"
-                    >
-                      取消
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAddEntry}
-                      disabled={!newContent.trim()}
-                      className="rounded-lg bg-[#7C6BFF] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#6A5AE0] disabled:opacity-40"
-                    >
-                      保存
-                    </button>
-                  </div>
+      {/* Feature cards - centered, above calendar */}
+      <div>
+        <h2 className="mb-4 text-center text-lg font-bold text-[#2D2B55]">
+          <Sparkles className="mr-2 inline-block h-5 w-5 text-[#7C6BFF]" />
+          功能导览
+        </h2>
+        <div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {FEATURE_CARDS.map((card) => {
+            const Icon = card.icon;
+            return (
+              <button
+                key={card.key}
+                type="button"
+                onClick={() => onNavigate(card.key)}
+                className={`group rounded-2xl border border-[#E8E6F0]/60 bg-gradient-to-br ${card.gradient} p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md`}
+              >
+                <div className={`mb-3 inline-flex rounded-xl ${card.iconBg} p-3`}>
+                  <Icon className={`h-5 w-5 ${card.iconColor}`} />
                 </div>
-              )}
-
-              {selectedEntries.length === 0 && !showAddForm ? (
-                <p className="mt-3 text-xs text-[#B8B5CC]">暂无记录，点击"添加"开始记录</p>
-              ) : (
-                <ul className="mt-3 space-y-2">
-                  {selectedEntries.map((entry) => (
-                    <li key={entry.id} className="flex items-start gap-3 rounded-xl bg-[#F5F4FA] p-3">
-                      <span className="mt-0.5 shrink-0 rounded-md bg-[#7C6BFF]/10 px-2 py-0.5 text-xs font-medium text-[#7C6BFF]">
-                        {typeLabels[entry.type] || entry.type}
-                      </span>
-                      <span className="flex-1 text-sm text-[#2D2B55]">{entry.content}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteEntry(entry.id)}
-                        className="shrink-0 text-xs text-[#B8B5CC] transition hover:text-[#E57373]"
-                      >
-                        ✕
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
+                <h3 className="text-sm font-bold text-[#2D2B55]">{card.label}</h3>
+                <p className="mt-1 text-xs leading-5 text-[#8E8BA8]">{card.desc}</p>
+                <span className={`mt-3 inline-block text-xs font-semibold ${card.iconColor} opacity-0 transition-opacity group-hover:opacity-100`}>
+                  进入 →
+                </span>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* Right sidebar - Quick links & recent */}
+      {/* Calendar - right-aligned, compact */}
+      <div className="mx-auto grid max-w-3xl gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
+        {/* Recent entries (left) */}
         <div className="space-y-6">
           {/* Quick target */}
           <div className="rounded-2xl bg-gradient-to-br from-[#7C6BFF] to-[#9B7EDE] p-5 text-white shadow-lg shadow-[#7C6BFF]/20">
@@ -357,7 +259,7 @@ export function HomePage({
               <Target className="h-5 w-5" />
               <h3 className="font-bold">今日目标</h3>
             </div>
-            <p className="mt-3 text-sm text-white/80">选择下方功能卡片，快速开始创作</p>
+            <p className="mt-3 text-sm text-white/80">选择上方功能卡片，快速开始创作</p>
             <div className="mt-4 grid grid-cols-3 gap-2">
               {FEATURE_CARDS.slice(0, 3).map((f) => (
                 <button
@@ -397,35 +299,131 @@ export function HomePage({
             </ul>
           </div>
         </div>
-      </div>
 
-      {/* Feature cards grid */}
-      <div>
-        <h2 className="mb-4 text-lg font-bold text-[#2D2B55]">
-          <Sparkles className="mr-2 inline-block h-5 w-5 text-[#7C6BFF]" />
-          功能导览
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {FEATURE_CARDS.map((card) => {
-            const Icon = card.icon;
-            return (
-              <button
-                key={card.key}
-                type="button"
-                onClick={() => onNavigate(card.key)}
-                className={`group rounded-2xl border border-[#E8E6F0]/60 bg-gradient-to-br ${card.gradient} p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md`}
-              >
-                <div className={`mb-3 inline-flex rounded-xl ${card.iconBg} p-3`}>
-                  <Icon className={`h-5 w-5 ${card.iconColor}`} />
+        {/* Calendar (right, compact) */}
+        <div className="rounded-2xl border border-[#E8E6F0]/60 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <button type="button" onClick={prevMonth} className="rounded-lg p-1.5 text-sm transition hover:bg-[#F5F4FA]">
+              ←
+            </button>
+            <h2 className="text-sm font-bold text-[#2D2B55]">{monthName}</h2>
+            <button type="button" onClick={nextMonth} className="rounded-lg p-1.5 text-sm transition hover:bg-[#F5F4FA]">
+              →
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5 text-center">
+            {weekDayNames.map((name) => (
+              <div key={name} className="py-1 text-[10px] font-medium text-[#8E8BA8]">
+                {name}
+              </div>
+            ))}
+            {calendarDays.map((day, idx) => {
+              if (day === null) return <div key={`pad-${idx}`} />;
+
+              const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+              const isToday = dateStr === todayStr;
+              const isSelected = dateStr === selectedDate;
+              const hasEntries = entriesByDate[dateStr]?.length > 0;
+
+              return (
+                <button
+                  key={dateStr}
+                  type="button"
+                  onClick={() => handleDayClick(day)}
+                  className={`relative flex h-8 w-full flex-col items-center justify-center rounded-lg text-xs transition ${
+                    isSelected
+                      ? 'bg-[#7C6BFF] text-white shadow shadow-[#7C6BFF]/25'
+                      : isToday
+                        ? 'bg-[#7C6BFF]/10 text-[#7C6BFF] font-bold'
+                        : 'text-[#2D2B55] hover:bg-[#F5F4FA]'
+                  }`}
+                >
+                  {day}
+                  {hasEntries && !isSelected && (
+                    <span className="absolute bottom-0.5 h-1 w-1 rounded-full bg-[#7FD99F]" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Selected date entries */}
+          {selectedDate && (
+            <div className="mt-3 border-t border-[#E8E6F0]/60 pt-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-[#2D2B55]">{selectedDate}</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="flex items-center gap-1 rounded-lg bg-[#7C6BFF]/10 px-2 py-1 text-[10px] font-semibold text-[#7C6BFF] transition hover:bg-[#7C6BFF]/20"
+                >
+                  <Plus className="h-3 w-3" />
+                  添加
+                </button>
+              </div>
+
+              {showAddForm && (
+                <div className="mt-2 space-y-1.5 rounded-xl bg-[#F5F4FA] p-2.5">
+                  <select
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                    className="rounded-lg border border-[#E8E6F0]/60 bg-white px-2 py-1 text-xs text-[#2D2B55]"
+                  >
+                    {Object.entries(typeLabels).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={newContent}
+                    onChange={(e) => setNewContent(e.target.value)}
+                    placeholder="输入工作内容..."
+                    className="w-full rounded-lg border border-[#E8E6F0]/60 bg-white px-2.5 py-1.5 text-xs text-[#2D2B55] placeholder-[#B8B5CC]"
+                    rows={2}
+                  />
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setShowAddForm(false); setNewContent(''); }}
+                      className="rounded-lg px-2.5 py-1 text-[10px] text-[#8E8BA8] transition hover:bg-[#E8E6F0]/40"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddEntry}
+                      disabled={!newContent.trim()}
+                      className="rounded-lg bg-[#7C6BFF] px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-[#6A5AE0] disabled:opacity-40"
+                    >
+                      保存
+                    </button>
+                  </div>
                 </div>
-                <h3 className="text-sm font-bold text-[#2D2B55]">{card.label}</h3>
-                <p className="mt-1 text-xs leading-5 text-[#8E8BA8]">{card.desc}</p>
-                <span className={`mt-3 inline-block text-xs font-semibold ${card.iconColor} opacity-0 transition-opacity group-hover:opacity-100`}>
-                  进入 →
-                </span>
-              </button>
-            );
-          })}
+              )}
+
+              {selectedEntries.length === 0 && !showAddForm ? (
+                <p className="mt-2 text-[10px] text-[#B8B5CC]">暂无记录</p>
+              ) : (
+                <ul className="mt-2 space-y-1.5">
+                  {selectedEntries.map((entry) => (
+                    <li key={entry.id} className="flex items-start gap-2 rounded-lg bg-[#F5F4FA] p-2">
+                      <span className="mt-0.5 shrink-0 rounded bg-[#7C6BFF]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#7C6BFF]">
+                        {typeLabels[entry.type] || entry.type}
+                      </span>
+                      <span className="flex-1 text-xs text-[#2D2B55]">{entry.content}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteEntry(entry.id)}
+                        className="shrink-0 text-[10px] text-[#B8B5CC] transition hover:text-[#E57373]"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
