@@ -1,13 +1,35 @@
-import * as pdfjsLib from 'pdfjs-dist';
+// PDF parser using CDN-loaded pdf.js (no npm dependency, works on all environments)
 
-// Use the worker from the package (Vite will handle this via url import)
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+let pdfjsLib: any = null;
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+async function getPdfjs(): Promise<any> {
+  if (pdfjsLib) return pdfjsLib;
+
+  // Load pdf.js from CDN
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+  script.type = 'module';
+  
+  return new Promise((resolve, reject) => {
+    script.onload = () => {
+      // pdf.js sets itself on window as pdfjsLib
+      pdfjsLib = (window as any).pdfjsLib;
+      if (pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+        resolve(pdfjsLib);
+      } else {
+        reject(new Error('pdf.js 加载失败，请检查网络连接'));
+      }
+    };
+    script.onerror = () => reject(new Error('pdf.js CDN 加载失败，请检查网络连接'));
+    document.head.appendChild(script);
+  });
+}
 
 export async function parsePdfFile(file: File): Promise<string> {
+  const pdfjs = await getPdfjs();
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
 
   let fullText = '';
   for (let i = 1; i <= pdf.numPages; i++) {
@@ -19,7 +41,6 @@ export async function parsePdfFile(file: File): Promise<string> {
     fullText += pageText + '\n\n';
   }
 
-  // Clean up extra whitespace
   return fullText
     .replace(/\n{3,}/g, '\n\n')
     .replace(/\s{2,}/g, ' ')
