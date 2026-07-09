@@ -32,6 +32,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
 import { CoverGenerator } from './components/CoverGenerator';
 import { HomePage } from './components/HomePage';
+import { KnowledgeBaseDrawer } from './components/KnowledgeBaseDrawer';
 import { HistoryPanel } from './components/HistoryPanel';
 import { PreferencesDrawer } from './components/PreferencesDrawer';
 import { ResearchView } from './components/ResearchView';
@@ -67,6 +68,7 @@ import {
   reviseGeneratedContent,
   saveConfig,
 } from './llm';
+import { getEnabledKnowledgeContext, truncateKnowledgeContext } from './knowledgeBase';
 import type {
   Angle,
   AppRecommendationResult,
@@ -202,6 +204,7 @@ function TopBar({
   onTheme,
   onPreferences,
   onCover,
+  onKb,
 }: {
   active: AppTab;
   onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
@@ -209,6 +212,7 @@ function TopBar({
   onTheme: () => void;
   onPreferences: () => void;
   onCover: () => void;
+  onKb: () => void;
 }) {
   return (
     <header className="mac-topbar">
@@ -235,6 +239,9 @@ function TopBar({
         </button>
         <button type="button" onClick={onCover} className="mac-icon-btn" title="封面生成">
           <ImageIcon className="h-5 w-5" />
+        </button>
+        <button type="button" onClick={onKb} className="mac-icon-btn" title="知识库">
+          <BookOpen className="h-5 w-5" />
         </button>
         <button type="button" onClick={onTheme} className="mac-icon-btn" title="页面设计">
           <PaletteIcon className="h-5 w-5" />
@@ -2252,6 +2259,8 @@ export default function AppShell() {
   const [themeOpen, setThemeOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [kbOpen, setKbOpen] = useState(false);
+  const [kbContext, setKbContext] = useState('');
   const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
   const [themeDraft, setThemeDraft] = useState<ThemeSettings>(() => loadThemeSettings());
@@ -2362,9 +2371,9 @@ export default function AppShell() {
       const nextAngles =
         active === 'article'
           ? comments.trim()
-            ? await analyzeArticleWithComments({ config, article, comments, country, platform, viralSkill, preferenceContext: contextString })
-            : await analyzeArticle({ config, article, country, platform, viralSkill, preferenceContext: contextString })
-          : await analyzeTopic({ config, topic, country, platform, viralSkill, preferenceContext: contextString });
+            ? await analyzeArticleWithComments({ config, article, comments, country, platform, viralSkill, preferenceContext: fullContextString })
+            : await analyzeArticle({ config, article, country, platform, viralSkill, preferenceContext: fullContextString })
+          : await analyzeTopic({ config, topic, country, platform, viralSkill, preferenceContext: fullContextString });
       setAngles(nextAngles);
       setSelectedAngleId(nextAngles[0]?.id ?? null);
       if (nextAngles.length === 0) showToast('没有解析出可用角度');
@@ -2401,7 +2410,7 @@ export default function AppShell() {
               country,
               platform,
               viralSkill,
-              preferenceContext: contextString,
+              preferenceContext: fullContextString,
             })
           : await generateFromTopic({
               config,
@@ -2410,7 +2419,7 @@ export default function AppShell() {
               country,
               platform,
               viralSkill,
-              preferenceContext: contextString,
+              preferenceContext: fullContextString,
             });
       setResult(nextResult);
       setFactCheckStatuses({});
@@ -2482,7 +2491,7 @@ export default function AppShell() {
         post: result.post,
         currentTitle: result.title,
         platform,
-        preferenceContext: contextString,
+        preferenceContext: fullContextString,
       });
       setResult((prev) => ({ ...prev, title }));
       showToast('已重新生成标题');
@@ -2541,7 +2550,7 @@ export default function AppShell() {
         platform,
         angle: selectedAngle?.title,
         sourceContext: active === 'article' ? article : topic,
-        preferenceContext: contextString,
+        preferenceContext: fullContextString,
       });
       rememberPostVersion(result.post);
       learnFromInstruction(value);
@@ -2792,7 +2801,7 @@ export default function AppShell() {
         includeChat: false,
         variation,
         viralSkill: buildViralSkillContext(combinedViralExamples, docBriefing || docDocument),
-        preferenceContext: contextString,
+        preferenceContext: fullContextString,
       });
       setDocResult(nextResult);
       setDocVariation(variation);
@@ -2905,6 +2914,17 @@ export default function AppShell() {
     applyThemeSettings(themeSettings);
   }, [themeSettings]);
 
+  useEffect(() => {
+    getEnabledKnowledgeContext().then((ctx) => {
+      setKbContext(truncateKnowledgeContext(ctx));
+    });
+  }, [kbOpen]);
+
+  const fullContextString = useMemo(() => {
+    if (!kbContext) return contextString;
+    return `${contextString}\n\n【知识库背景】\n${kbContext}`;
+  }, [contextString, kbContext]);
+
   function openThemeDrawer() {
     setThemeDraft(themeSettings);
     setThemeOpen(true);
@@ -2948,7 +2968,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onCover={() => setCoverOpen(true)} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
@@ -2980,6 +3000,8 @@ export default function AppShell() {
               />
             </div>
           )}
+
+          <KnowledgeBaseDrawer open={kbOpen} onClose={() => setKbOpen(false)} />
 
           {active === 'home' ? (
             <div className="mac-content-scroll">
