@@ -58,11 +58,25 @@ export const DEFAULT_CONFIG: LlmConfig = {
 
 const CONFIG_KEY = 'ht-llm-config';
 
+// Migrate retired model names to new V4 names
+function migrateModelName(model: string): string {
+  const retired: Record<string, string> = {
+    'deepseek-chat': 'deepseek-v4-flash',
+    'deepseek-reasoner': 'deepseek-v4-pro',
+  };
+  return retired[model] || model;
+}
+
 export function loadConfig(): LlmConfig {
   try {
     const stored = localStorage.getItem(CONFIG_KEY);
     if (stored) {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+      const parsed = JSON.parse(stored);
+      const config = { ...DEFAULT_CONFIG, ...parsed };
+      // Auto-migrate retired model names
+      config.model = migrateModelName(config.model);
+      config.chatModel = migrateModelName(config.chatModel);
+      return config;
     }
   } catch {
     // 忽略本地配置读取失败，继续使用环境变量或默认配置
