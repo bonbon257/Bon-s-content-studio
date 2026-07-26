@@ -31,7 +31,7 @@
 ```env
 LLM_API_KEY=你的主模型 API Key
 LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-v4-flash
 APP_PASSWORD=你自己设置的访问密码
 ```
 

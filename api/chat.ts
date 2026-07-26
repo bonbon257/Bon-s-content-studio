@@ -9,6 +9,16 @@ type ChatRequest = {
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 
+// Migrate retired DeepSeek model names to V4
+function migrateModel(model: string | undefined): string | undefined {
+  if (!model) return model;
+  const retired: Record<string, string> = {
+    'deepseek-chat': 'deepseek-v4-flash',
+    'deepseek-reasoner': 'deepseek-v4-pro',
+  };
+  return retired[model] || model;
+}
+
 function getHeader(req: { headers?: Record<string, string | string[] | undefined> }, name: string) {
   const value = req.headers?.[name] ?? req.headers?.[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
@@ -36,7 +46,7 @@ function resolveProvider(body: ChatRequest) {
   return {
     apiKey,
     baseUrl: baseUrl.replace(/\/$/, ''),
-    model,
+    model: migrateModel(model),
   };
 }
 
