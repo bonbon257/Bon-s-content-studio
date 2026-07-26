@@ -9,7 +9,7 @@ const baseUrlOptions = [
   { label: '自定义', value: 'custom' },
 ];
 
-const modelOptions = ['deepseek-chat', 'deepseek-reasoner'];
+const modelOptions = ['deepseek-v4-flash', 'deepseek-v4-pro'];
 
 export function SettingsDrawer({
   open,
@@ -30,7 +30,7 @@ export function SettingsDrawer({
     onSave({
       apiKey: draft.apiKey.trim(),
       baseUrl: draft.baseUrl.trim() || 'https://api.deepseek.com',
-      model: draft.model.trim() || 'deepseek-chat',
+      model: draft.model.trim() || 'deepseek-v4-flash',
       chatApiKey: draft.chatApiKey?.trim() || '',
       chatBaseUrl: draft.chatBaseUrl?.trim() || '',
       chatModel: draft.chatModel?.trim() || '',

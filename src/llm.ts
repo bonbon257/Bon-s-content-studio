@@ -50,7 +50,7 @@ export const LANGUAGE_MAP: Record<Country, string> = {
 export const DEFAULT_CONFIG: LlmConfig = {
   apiKey: '',
   baseUrl: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-flash',
   chatApiKey: '',
   chatBaseUrl: '',
   chatModel: '',
