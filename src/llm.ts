@@ -733,7 +733,7 @@ ${isApp ? `APP真人分享额外要求：
 - 自然提到 HelloTalk 一次，不能像硬广。
 - 正文优先 120-220 字。
 - 如果用户要求增加内容，也要保持简洁和真人感。
-- 必带标签 #找外国人聊天 #认识外国人 #HT认识外国人。
+- 必带标签 #找外国人聊天 #认识外国人。
 - 输出 factChecks 2-5 条，对新增或保留的关键事实做自检。`}
 
 输出严格 JSON：
@@ -791,7 +791,7 @@ ${FACT_RULES}
 正文尽量简短，120-220字优先，减少重复表达，不写解释腔；要让用户看完觉得有意思、愿意点赞或评论。
 正文必须三段式：第一段现状或疑问；第二段写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给的真实回应；第三段总结并抛出开放式问题。
 输出前自检：标题是否有具体重点？正文是否真人、简短、不重复？如果不成立，先重写再输出。
-请输出 6-10 个 tags，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
+请输出 6-10 个 tags，必带 #找外国人聊天 #认识外国人。
 本次只生成正文内容，聊天记录必须输出空数组 chat: []，不要生成任何聊天对话。
 factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
 请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}
@@ -825,10 +825,10 @@ ${FACT_RULES}
 标题必须精准抓住话题里最值得点进来的重点，不要只追求更短；要让小红书/抖音用户刷到时愿意点进来看。
 正文尽量简短，120-220字优先，减少重复表达，不写解释腔；要让用户看完觉得有意思、愿意点赞或评论。
 正文必须三段式。输出前自检：标题是否有具体重点？正文是否真人、简短、不重复？如果不成立，先重写再输出。
-tags 6-10 条，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
+tags 6-10 条，必带 #找外国人聊天 #认识外国人。
 本次只生成正文内容，聊天记录必须输出空数组 chat: []，不要生成任何聊天对话。
 factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
-请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天","#认识外国人","#HT认识外国人"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天","#认识外国人"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
     { preferenceContext: params.preferenceContext },
   );
   return withoutGeneratedChat(payload);
@@ -869,10 +869,10 @@ ${params.document}
 - 正文 120-220 字优先，真人分享语气，不能像 AI、科普稿、说明书。
 - 正文必须三段式：第一段真实背景或疑问；第二段写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给出的真实回应；只能出现一个外国朋友，不要写"我又问了另一个外国人""我朋友们""几个外国人""一群外国人"。禁止写"先和外国人聊天/认识，然后再去 HelloTalk"的逻辑，这位朋友本身就是在 HelloTalk 上认识的。第三段总结并抛出开放式问题。
 - 必须自然提及 HelloTalk 1次，只能 1次；提及方式必须明确"在 HelloTalk 上认识的"这层关系。
-- tags 6-10 条，必带 #找外国人聊天 #认识外国人 #HT认识外国人。
+- tags 6-10 条，必带 #找外国人聊天 #认识外国人。
 - factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。${chatRule}${variationHint}
 
-请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天","#认识外国人","#HT认识外国人"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+请严格输出 JSON：{"title":"...","post":"...","tags":["#找外国人聊天","#认识外国人"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
     { preferenceContext: params.preferenceContext },
   );
   return withoutGeneratedChat(payload);
