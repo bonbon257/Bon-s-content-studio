@@ -35,6 +35,7 @@ import { HomePage } from './components/HomePage';
 import { KnowledgeBaseDrawer } from './components/KnowledgeBaseDrawer';
 import { HistoryPanel } from './components/HistoryPanel';
 import { PreferencesDrawer } from './components/PreferencesDrawer';
+import { StyleSkillDrawer } from './components/StyleSkillDrawer';
 import { ResearchView } from './components/ResearchView';
 import { SettingsDrawer } from './components/SettingsDrawer';
 import { ThemeDrawer } from './components/ThemeDrawer';
@@ -48,6 +49,7 @@ import {
 import { BUILT_IN_VIRAL_EXAMPLES } from './data/viralExamples';
 import { useHistory } from './hooks/useHistory';
 import { usePreferences } from './hooks/usePreferences';
+import { useStyleSkills } from './hooks/useStyleSkills';
 import {
   analyzeArticle,
   analyzeArticleWithComments,
@@ -203,16 +205,20 @@ function TopBar({
   onSettings,
   onTheme,
   onPreferences,
+  onStyleSkill,
   onCover,
   onKb,
+  activeSkillName,
 }: {
   active: AppTab;
   onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
   onSettings: () => void;
   onTheme: () => void;
   onPreferences: () => void;
+  onStyleSkill: () => void;
   onCover: () => void;
   onKb: () => void;
+  activeSkillName?: string;
 }) {
   return (
     <header className="mac-topbar">
@@ -236,6 +242,12 @@ function TopBar({
         <div className="mac-top-avatar">B</div>
         <button type="button" onClick={onPreferences} className="mac-icon-btn" title="我的偏好">
           <Brain className="h-5 w-5" />
+        </button>
+        <button type="button" onClick={onStyleSkill} className="mac-icon-btn relative" title="风格 SKILL">
+          <Sparkles className="h-5 w-5 text-[#FF9F43]" />
+          {activeSkillName && (
+            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[#FF9F43]" />
+          )}
         </button>
         <button type="button" onClick={onCover} className="mac-icon-btn" title="封面生成">
           <ImageIcon className="h-5 w-5" />
@@ -2258,10 +2270,12 @@ export default function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [styleSkillOpen, setStyleSkillOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const [kbOpen, setKbOpen] = useState(false);
   const [kbContext, setKbContext] = useState('');
   const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
+  const styleSkills = useStyleSkills();
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
   const [themeDraft, setThemeDraft] = useState<ThemeSettings>(() => loadThemeSettings());
   const [config, setConfig] = useState(() => loadConfig());
@@ -2921,9 +2935,21 @@ export default function AppShell() {
   }, [kbOpen]);
 
   const fullContextString = useMemo(() => {
-    if (!kbContext) return contextString;
-    return `${contextString}\n\n【知识库背景】\n${kbContext}`;
-  }, [contextString, kbContext]);
+    const parts: string[] = [];
+    // 1. 风格 SKILL（最高优先级，callChatJson 会自动识别并前置）
+    if (styleSkills.skillContext) {
+      parts.push(styleSkills.skillContext);
+    }
+    // 2. 用户偏好
+    if (contextString) {
+      parts.push(contextString);
+    }
+    // 3. 知识库
+    if (kbContext) {
+      parts.push(`\n【知识库背景】\n${kbContext}`);
+    }
+    return parts.join('\n\n');
+  }, [styleSkills.skillContext, contextString, kbContext]);
 
   function openThemeDrawer() {
     setThemeDraft(themeSettings);
@@ -2968,7 +2994,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={styleSkills.activeSkill?.name} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
@@ -2990,6 +3016,19 @@ export default function AppShell() {
             onSaveManual={saveManual}
             onResetManual={resetManual}
             onResetAuto={resetAuto}
+          />
+          <StyleSkillDrawer
+            open={styleSkillOpen}
+            skills={styleSkills.skills}
+            activeSkillId={styleSkills.activeSkill?.id || null}
+            config={config}
+            onClose={() => setStyleSkillOpen(false)}
+            onActivate={styleSkills.activateSkill}
+            onCreate={styleSkills.createSkill}
+            onUpdate={styleSkills.updateSkill}
+            onDelete={styleSkills.deleteSkill}
+            onDuplicate={styleSkills.duplicateSkill}
+            onDeactivate={styleSkills.deactivateSkill}
           />
 
           {coverOpen && (

@@ -150,3 +150,45 @@ export interface UserPreferences {
   manual: ManualPreferences;
   version: number;
 }
+
+// 风格 SKILL —— 从爆文中提炼的完整写作风格模板
+export interface StyleSkill {
+  id: string;
+  name: string;
+  description: string;
+  // 风格规则（高权重注入）
+  styleRules: string;
+  // 标题模式
+  titlePattern: string;
+  // 开头模式
+  openingPattern: string;
+  // 正文结构
+  structurePattern: string;
+  // 语气风格
+  toneStyle: string;
+  // 结尾模式
+  endingPattern: string;
+  // 必带标签
+  requiredTags: string[];
+  // 禁用标签
+  forbiddenTags: string[];
+  // 目标字数
+  targetLength: number;
+  // 参考爆文样本
+  samples: string[];
+  // 全局附加指令
+  globalInstruction: string;
+  // 外国朋友人设
+  friendPersona: string;
+  // 是否为当前激活的 SKILL
+  active: boolean;
+  // 创建时间
+  createdAt: string;
+  // 更新时间
+  updatedAt: string;
+}
+
+export interface StyleSkillStore {
+  skills: StyleSkill[];
+  version: number;
+}

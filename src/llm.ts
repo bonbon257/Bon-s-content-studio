@@ -287,16 +287,42 @@ function extractJson<T>(text: string): T {
 async function callChatJson<T>(
   config: LlmConfig,
   userPrompt: string,
-  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean; preferenceContext?: string },
+  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean; preferenceContext?: string; skillContext?: string },
 ): Promise<T> {
   const useProxy = shouldUseCloudProxy();
   if (!useProxy && !config.apiKey.trim()) {
     throw new Error('缺少 LLM API Key，请在 .env.local 中配置 VITE_LLM_API_KEY。');
   }
 
-  let systemContent = options?.systemPrompt ?? SYSTEM_PROMPT;
-  if (options?.preferenceContext) {
-    systemContent += options.preferenceContext;
+  // 智能注入：从 preferenceContext 中识别 SKILL 部分并前置
+  let systemContent = '';
+  const prefCtx = options?.preferenceContext || '';
+
+  // 检查是否包含风格 SKILL（以 【当前激活风格 SKILL 开头）
+  const skillMarker = '【当前激活风格 SKILL';
+  const skillIdx = prefCtx.indexOf(skillMarker);
+  let skillPart = '';
+  let prefPart = prefCtx;
+
+  if (skillIdx !== -1) {
+    // 找到 SKILL 结束标记（下一个 【 或 结尾）
+    const nextSection = prefCtx.indexOf('\n\n【', skillIdx + 1);
+    const endIdx = nextSection !== -1 ? nextSection : prefCtx.length;
+    skillPart = prefCtx.slice(skillIdx, endIdx).trim();
+    prefPart = prefCtx.slice(0, skillIdx).trim() + prefCtx.slice(endIdx).trim();
+  }
+
+  // 风格 SKILL 放在最前面，最高优先级
+  if (skillPart) {
+    systemContent += skillPart;
+    systemContent += '\n\n';
+  }
+
+  systemContent += options?.systemPrompt ?? SYSTEM_PROMPT;
+
+  // 用户偏好注入：放在后面，作为补充
+  if (prefPart.trim()) {
+    systemContent += '\n\n' + prefPart.trim();
   }
 
   const body = {
@@ -1045,6 +1071,89 @@ ${JSON.stringify(currentRow || {}, null, 2)}
     { temperature: 0.68, useChatModel: true },
   );
   return normalizeChatRows([payload.row])[0] || currentRow || { target: '外国用户', chinese: '', foreign: '' };
+}
+
+// ===================== 风格 SKILL 提炼 =====================
+
+export interface ExtractedStyleSkill {
+  name: string;
+  description: string;
+  styleRules: string;
+  titlePattern: string;
+  openingPattern: string;
+  structurePattern: string;
+  toneStyle: string;
+  endingPattern: string;
+  requiredTags: string[];
+  forbiddenTags: string[];
+  targetLength: number;
+  globalInstruction: string;
+  friendPersona: string;
+}
+
+export async function extractStyleFromSamples(params: {
+  config: LlmConfig;
+  samples: string[];
+  platform?: string;
+}): Promise<ExtractedStyleSkill> {
+  const sampleText = params.samples
+    .map((s, i) => `【爆文样本${i + 1}】\n${s.trim()}`)
+    .join('\n\n');
+
+  const payload = await callChatJson<ExtractedStyleSkill>(
+    params.config,
+    `你是一位资深内容运营专家，擅长从爆款内容中提炼可复用的写作风格模板。
+
+请仔细分析以下 ${params.samples.length} 篇爆文样本，提炼出它们共同的写作风格规律。你的分析必须精准、具体、可操作，不要空泛的形容词。
+
+${sampleText}
+
+${params.platform ? `平台：${params.platform}` : ''}
+
+请从以下维度逐一分析并提炼规则：
+
+1. **name**：给这个风格起一个好记的名字（不超过 8 个字）
+2. **description**：一句话描述这个风格的核心特征（不超过 30 字）
+3. **styleRules**：核心风格规则，3-5 条最关键的写作要求，每条要具体可执行
+4. **titlePattern**：标题模式，详细描述标题的句式、长度、常用手法、钩子类型
+5. **openingPattern**：开头模式，描述第一段通常怎么写、用什么方式抓读者注意力
+6. **structurePattern**：正文结构，描述整篇文章的段落安排、逻辑推进方式
+7. **toneStyle**：语气风格，描述整体语感（口语化/书面？犀利/温柔？吐槽/分享？等）
+8. **endingPattern**：结尾模式，描述结尾通常怎么收、有没有固定套路
+9. **requiredTags**：这些样本中反复出现的必带标签（#开头）
+10. **forbiddenTags**：完全不应该出现的标签类型
+11. **targetLength**：正文平均字数（取整数）
+12. **globalInstruction**：全局附加指令，任何时候都要遵守的 2-3 条铁律
+13. **friendPersona**：如果文中提到外国朋友，描述这个人设的共同特征（国籍、性格、说话方式等）
+
+要求：
+- 所有分析必须基于样本实际内容，不要凭空想象
+- 规则要具体到"怎么做"，而不是"做得好"
+- 例如不要写"标题吸引人"，要写"标题用'为什么...？'句式，长度 15-20 字，抛出反常识疑问"
+
+请严格输出 JSON，不要任何额外说明。`,
+    { temperature: 0.3 },
+  );
+
+  return {
+    name: String(payload?.name || '自定义风格').trim(),
+    description: String(payload?.description || '').trim(),
+    styleRules: String(payload?.styleRules || '').trim(),
+    titlePattern: String(payload?.titlePattern || '').trim(),
+    openingPattern: String(payload?.openingPattern || '').trim(),
+    structurePattern: String(payload?.structurePattern || '').trim(),
+    toneStyle: String(payload?.toneStyle || '').trim(),
+    endingPattern: String(payload?.endingPattern || '').trim(),
+    requiredTags: Array.isArray(payload?.requiredTags)
+      ? payload.requiredTags.map((t) => String(t).trim()).filter(Boolean)
+      : [],
+    forbiddenTags: Array.isArray(payload?.forbiddenTags)
+      ? payload.forbiddenTags.map((t) => String(t).trim()).filter(Boolean)
+      : [],
+    targetLength: Number(payload?.targetLength) || 150,
+    globalInstruction: String(payload?.globalInstruction || '').trim(),
+    friendPersona: String(payload?.friendPersona || '').trim(),
+  };
 }
 
 function normalizeResearch(payload: ResearchResult, fallbackTopic: string): ResearchResult {
