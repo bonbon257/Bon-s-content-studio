@@ -50,6 +50,7 @@ import { BUILT_IN_VIRAL_EXAMPLES } from './data/viralExamples';
 import { useHistory } from './hooks/useHistory';
 import { usePreferences } from './hooks/usePreferences';
 import { useStyleSkills } from './hooks/useStyleSkills';
+import { useGuideSkills } from './hooks/useGuideSkills';
 import {
   analyzeArticle,
   analyzeArticleWithComments,
@@ -79,6 +80,7 @@ import type {
   FactCheckItem,
   GenerationResult,
   GeneratedContentResearchResult,
+  GuideStage,
   HistoryRecord,
   Platform,
   Scene,
@@ -2276,6 +2278,7 @@ export default function AppShell() {
   const [kbContext, setKbContext] = useState('');
   const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
   const styleSkills = useStyleSkills();
+  const guideSkills = useGuideSkills();
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
   const [themeDraft, setThemeDraft] = useState<ThemeSettings>(() => loadThemeSettings());
   const [config, setConfig] = useState(() => loadConfig());
@@ -2385,9 +2388,9 @@ export default function AppShell() {
       const nextAngles =
         active === 'article'
           ? comments.trim()
-            ? await analyzeArticleWithComments({ config, article, comments, country, platform, viralSkill, preferenceContext: fullContextString })
-            : await analyzeArticle({ config, article, country, platform, viralSkill, preferenceContext: fullContextString })
-          : await analyzeTopic({ config, topic, country, platform, viralSkill, preferenceContext: fullContextString });
+            ? await analyzeArticleWithComments({ config, article, comments, country, platform, viralSkill, preferenceContext: buildFullContext('analyze') })
+            : await analyzeArticle({ config, article, country, platform, viralSkill, preferenceContext: buildFullContext('analyze') })
+          : await analyzeTopic({ config, topic, country, platform, viralSkill, preferenceContext: buildFullContext('analyze') });
       setAngles(nextAngles);
       setSelectedAngleId(nextAngles[0]?.id ?? null);
       if (nextAngles.length === 0) showToast('没有解析出可用角度');
@@ -2424,7 +2427,7 @@ export default function AppShell() {
               country,
               platform,
               viralSkill,
-              preferenceContext: fullContextString,
+              preferenceContext: buildFullContext('generate'),
             })
           : await generateFromTopic({
               config,
@@ -2433,7 +2436,7 @@ export default function AppShell() {
               country,
               platform,
               viralSkill,
-              preferenceContext: fullContextString,
+              preferenceContext: buildFullContext('generate'),
             });
       setResult(nextResult);
       setFactCheckStatuses({});
@@ -2505,7 +2508,7 @@ export default function AppShell() {
         post: result.post,
         currentTitle: result.title,
         platform,
-        preferenceContext: fullContextString,
+        preferenceContext: buildFullContext('title'),
       });
       setResult((prev) => ({ ...prev, title }));
       showToast('已重新生成标题');
@@ -2529,6 +2532,7 @@ export default function AppShell() {
           field === 'title'
             ? '标题：不是一味更短，而是精准抓住重点、文化差异冲突点或具体疑问；判断用户刷到会不会愿意点进来看'
             : '正文：尽可能简短、真人、少重复，保留核心发现和互动感；判断用户看完会不会愿意点赞或评论；保持 HelloTalk 自然提及',
+        preferenceContext: buildFullContext('polish'),
       });
       setResult((prev) => ({ ...prev, [field]: polished }));
       setPolishChanges(changes.length ? changes : ['模型已优化表达，但未返回具体修改点。']);
@@ -2564,7 +2568,7 @@ export default function AppShell() {
         platform,
         angle: selectedAngle?.title,
         sourceContext: active === 'article' ? article : topic,
-        preferenceContext: fullContextString,
+        preferenceContext: buildFullContext('revise'),
       });
       rememberPostVersion(result.post);
       learnFromInstruction(value);
@@ -2815,7 +2819,7 @@ export default function AppShell() {
         includeChat: false,
         variation,
         viralSkill: buildViralSkillContext(combinedViralExamples, docBriefing || docDocument),
-        preferenceContext: fullContextString,
+        preferenceContext: buildFullContext('generate'),
       });
       setDocResult(nextResult);
       setDocVariation(variation);
@@ -2934,22 +2938,27 @@ export default function AppShell() {
     });
   }, [kbOpen]);
 
-  const fullContextString = useMemo(() => {
+  function buildFullContext(stage?: GuideStage) {
     const parts: string[] = [];
     // 1. 风格 SKILL（最高优先级，callChatJson 会自动识别并前置）
     if (styleSkills.skillContext) {
       parts.push(styleSkills.skillContext);
     }
-    // 2. 用户偏好
+    // 2. 通用爆文方法论 SKILL（按当前环节自动筛选已启用的）
+    const guideContext = guideSkills.buildContext(stage);
+    if (guideContext) {
+      parts.push(guideContext);
+    }
+    // 3. 用户偏好
     if (contextString) {
       parts.push(contextString);
     }
-    // 3. 知识库
+    // 4. 知识库
     if (kbContext) {
       parts.push(`\n【知识库背景】\n${kbContext}`);
     }
     return parts.join('\n\n');
-  }, [styleSkills.skillContext, contextString, kbContext]);
+  }
 
   function openThemeDrawer() {
     setThemeDraft(themeSettings);
@@ -2994,7 +3003,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={styleSkills.activeSkill?.name} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
@@ -3029,6 +3038,13 @@ export default function AppShell() {
             onDelete={styleSkills.deleteSkill}
             onDuplicate={styleSkills.duplicateSkill}
             onDeactivate={styleSkills.deactivateSkill}
+            guideSkills={guideSkills.skills}
+            onToggleGuide={guideSkills.toggleSkill}
+            onSetAllGuide={guideSkills.setAllEnabled}
+            onCreateGuide={guideSkills.createSkill}
+            onUpdateGuide={guideSkills.updateSkill}
+            onDeleteGuide={guideSkills.deleteSkill}
+            onResetGuideBuiltIns={guideSkills.resetBuiltIns}
           />
 
           {coverOpen && (

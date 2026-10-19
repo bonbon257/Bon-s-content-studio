@@ -1,11 +1,16 @@
-import { Sparkles, Plus, X, Trash2, Copy, Check, Wand2, ChevronDown, ChevronUp, Save } from 'lucide-react';
+import { Sparkles, Plus, X, Trash2, Copy, Check, Wand2, ChevronDown, ChevronUp, Save, BookMarked, Upload, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
-import type { StyleSkill } from '../types';
+import type { StyleSkill, GuideSkill, GuideStage } from '../types';
 import type { ExtractedStyleSkill } from '../llm';
 import { extractStyleFromSamples } from '../llm';
 import type { LlmConfig } from '../types';
+import { GUIDE_STAGE_LABELS } from '../data/guideSkills';
 
 type ViewMode = 'list' | 'create' | 'edit' | 'extract';
+type GuideViewMode = 'list' | 'import' | 'edit';
+type SkillTab = 'style' | 'guide';
+
+const ALL_STAGES: GuideStage[] = ['analyze', 'generate', 'title', 'revise', 'polish'];
 
 export function StyleSkillDrawer({
   open,
@@ -19,6 +24,13 @@ export function StyleSkillDrawer({
   onDelete,
   onDuplicate,
   onDeactivate,
+  guideSkills,
+  onToggleGuide,
+  onSetAllGuide,
+  onCreateGuide,
+  onUpdateGuide,
+  onDeleteGuide,
+  onResetGuideBuiltIns,
 }: {
   open: boolean;
   skills: StyleSkill[];
@@ -31,12 +43,24 @@ export function StyleSkillDrawer({
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDeactivate: () => void;
+  guideSkills: GuideSkill[];
+  onToggleGuide: (id: string) => void;
+  onSetAllGuide: (enabled: boolean) => void;
+  onCreateGuide: (data: { name: string; description?: string; content: string; appliesTo?: GuideStage[] }) => void;
+  onUpdateGuide: (id: string, data: Partial<GuideSkill>) => void;
+  onDeleteGuide: (id: string) => void;
+  onResetGuideBuiltIns: () => void;
 }) {
+  const [tab, setTab] = useState<SkillTab>('style');
   const [view, setView] = useState<ViewMode>('list');
   const [editingSkill, setEditingSkill] = useState<StyleSkill | null>(null);
   const [extractText, setExtractText] = useState('');
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState('');
+  const [guideView, setGuideView] = useState<GuideViewMode>('list');
+  const [editingGuide, setEditingGuide] = useState<GuideSkill | null>(null);
+  const [guideImportText, setGuideImportText] = useState('');
+  const [guideImportError, setGuideImportError] = useState('');
 
   if (!open) return null;
 
@@ -45,6 +69,37 @@ export function StyleSkillDrawer({
     setEditingSkill(null);
     setExtractText('');
     setExtractError('');
+  }
+
+  function handleGuideBack() {
+    setGuideView('list');
+    setEditingGuide(null);
+    setGuideImportText('');
+    setGuideImportError('');
+  }
+
+  function handleImportGuide() {
+    const raw = guideImportText.trim();
+    if (!raw) {
+      setGuideImportError('请粘贴 SKILL.md 内容');
+      return;
+    }
+    // 解析可选的 frontmatter（--- name/description ---）
+    const frontmatter = raw.match(/^---\n([\s\S]*?)\n---\n?/);
+    let name = '';
+    let description = '';
+    let content = raw;
+    if (frontmatter) {
+      name = (frontmatter[1].match(/^name:\s*(.+)$/m)?.[1] || '').trim();
+      description = (frontmatter[1].match(/^description:\s*(.+)$/m)?.[1] || '').trim();
+      content = raw.slice(frontmatter[0].length).trim();
+    }
+    if (!name) {
+      const firstLine = content.split('\n').find((line) => line.trim());
+      name = (firstLine || '导入的方法论').replace(/^#+\s*/, '').trim().slice(0, 30) || '导入的方法论';
+    }
+    onCreateGuide({ name, description, content });
+    handleGuideBack();
   }
 
   async function handleExtract() {
@@ -144,14 +199,28 @@ export function StyleSkillDrawer({
         style={{ animation: 'slideInRight 0.2s ease' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#E8E4DE] px-6 pb-4 pt-6">
+        <div className="flex items-center justify-between px-6 pb-3 pt-6">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-[#FF9F43]" />
+            {tab === 'guide' ? (
+              <BookMarked className="h-5 w-5 text-[#FF9F43]" />
+            ) : (
+              <Sparkles className="h-5 w-5 text-[#FF9F43]" />
+            )}
             <h2 className="text-lg font-bold text-[#1A1A1A]">
-              {view === 'list' && '风格 SKILL'}
-              {view === 'create' && '创建 SKILL'}
-              {view === 'edit' && '编辑 SKILL'}
-              {view === 'extract' && '从爆文提炼'}
+              {tab === 'guide'
+                ? guideView === 'list'
+                  ? '通用爆文方法论'
+                  : guideView === 'import'
+                    ? '导入方法论'
+                    : '编辑方法论'
+                : (
+                  <>
+                    {view === 'list' && '风格 SKILL'}
+                    {view === 'create' && '创建 SKILL'}
+                    {view === 'edit' && '编辑 SKILL'}
+                    {view === 'extract' && '从爆文提炼'}
+                  </>
+                )}
             </h2>
           </div>
           <button type="button" onClick={onClose} className="mac-icon-btn">
@@ -159,8 +228,38 @@ export function StyleSkillDrawer({
           </button>
         </div>
 
+        {/* Tab 切换 */}
+        <div className="flex gap-1 border-b border-[#E8E4DE] px-6">
+          <button
+            type="button"
+            onClick={() => {
+              setTab('style');
+              handleBack();
+            }}
+            className={`rounded-t-lg px-4 py-2 text-sm font-semibold transition ${
+              tab === 'style' ? 'bg-[#FFF7ED] text-[#FF9F43]' : 'text-[#6B6B6B] hover:text-[#1A1A1A]'
+            }`}
+          >
+            我的风格 SKILL
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTab('guide');
+              handleGuideBack();
+            }}
+            className={`rounded-t-lg px-4 py-2 text-sm font-semibold transition ${
+              tab === 'guide' ? 'bg-[#FFF7ED] text-[#FF9F43]' : 'text-[#6B6B6B] hover:text-[#1A1A1A]'
+            }`}
+          >
+            通用方法论（{guideSkills.filter((s) => s.enabled).length}/{guideSkills.length}）
+          </button>
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
+          {tab === 'style' && (
+            <>
           {view === 'list' && (
             <SkillListView
               skills={skills}
@@ -220,6 +319,52 @@ export function StyleSkillDrawer({
               error={extractError}
               onExtract={handleExtract}
               onCancel={handleBack}
+            />
+          )}
+            </>
+          )}
+
+          {tab === 'guide' && guideView === 'list' && (
+            <GuideListView
+              guides={guideSkills}
+              onToggle={onToggleGuide}
+              onSetAll={onSetAllGuide}
+              onImport={() => setGuideView('import')}
+              onResetBuiltIns={onResetGuideBuiltIns}
+              onEdit={(guide) => {
+                setEditingGuide(guide);
+                setGuideView('edit');
+              }}
+              onDelete={onDeleteGuide}
+            />
+          )}
+
+          {tab === 'guide' && guideView === 'import' && (
+            <GuideImportView
+              text={guideImportText}
+              setText={setGuideImportText}
+              error={guideImportError}
+              onImport={handleImportGuide}
+              onCancel={handleGuideBack}
+            />
+          )}
+
+          {tab === 'guide' && guideView === 'edit' && editingGuide && (
+            <GuideEditor
+              guide={editingGuide}
+              onUpdate={(updates) =>
+                setEditingGuide((prev) => (prev ? { ...prev, ...updates } : prev))
+              }
+              onSave={() => {
+                onUpdateGuide(editingGuide.id, {
+                  name: editingGuide.name,
+                  description: editingGuide.description,
+                  content: editingGuide.content,
+                  appliesTo: editingGuide.appliesTo,
+                });
+                handleGuideBack();
+              }}
+              onCancel={handleGuideBack}
             />
           )}
         </div>
@@ -796,6 +941,327 @@ function ExtractView({
           )}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ==================== 通用方法论：列表 ====================
+
+function GuideListView({
+  guides,
+  onToggle,
+  onSetAll,
+  onImport,
+  onResetBuiltIns,
+  onEdit,
+  onDelete,
+}: {
+  guides: GuideSkill[];
+  onToggle: (id: string) => void;
+  onSetAll: (enabled: boolean) => void;
+  onImport: () => void;
+  onResetBuiltIns: () => void;
+  onEdit: (guide: GuideSkill) => void;
+  onDelete: (id: string) => void;
+}) {
+  const enabledCount = guides.filter((g) => g.enabled).length;
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-[#FF9F43]/20 bg-[#FFF7ED] p-4">
+        <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-[#1A1A1A]">
+          <BookMarked className="h-4 w-4 text-[#FF9F43]" />
+          通用爆文方法论
+        </h3>
+        <p className="text-xs leading-relaxed text-[#6B6B6B]">
+          来自插件市场「小红书内容创作技能包」的通用方法论，可
+          <span className="font-semibold text-[#1A1A1A]">同时启用多个</span>
+          。系统会按当前环节（选题 / 生成正文 / 生成标题 / 改写 / 润色）自动挑选相关的启用项注入，避免无关内容干扰。
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={onImport} className="mac-secondary-btn !py-2 text-xs">
+          <Upload className="h-3.5 w-3.5" />
+          导入 SKILL.md / 粘贴文本
+        </button>
+        <button type="button" onClick={() => onSetAll(true)} className="mac-secondary-btn !py-2 text-xs">
+          全部启用
+        </button>
+        <button type="button" onClick={() => onSetAll(false)} className="mac-secondary-btn !py-2 text-xs">
+          全部停用
+        </button>
+        <button
+          type="button"
+          onClick={onResetBuiltIns}
+          className="mac-secondary-btn !py-2 text-xs"
+          title="用内置版本覆盖被修改过的内置方法论"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          恢复内置
+        </button>
+      </div>
+
+      <p className="text-xs text-[#6B6B6B]">
+        已启用 {enabledCount} / {guides.length} 个
+      </p>
+
+      <div className="space-y-3">
+        {guides.map((guide) => (
+          <GuideCard
+            key={guide.id}
+            guide={guide}
+            onToggle={onToggle}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GuideCard({
+  guide,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  guide: GuideSkill;
+  onToggle: (id: string) => void;
+  onEdit: (guide: GuideSkill) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div
+      className={`rounded-2xl border bg-white p-4 transition ${
+        guide.enabled ? 'border-[#FF9F43]/40' : 'border-[#E8E4DE]'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-bold text-[#1A1A1A]">{guide.name}</h4>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                guide.builtIn ? 'bg-[#FFF7ED] text-[#FF9F43]' : 'bg-[#F2F0EC] text-[#6B6B6B]'
+              }`}
+            >
+              {guide.builtIn ? '内置' : '自定义'}
+            </span>
+          </div>
+          {guide.description && (
+            <p className="mt-1 text-xs leading-relaxed text-[#6B6B6B]">{guide.description}</p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-1">
+            {guide.appliesTo.map((stage) => (
+              <span key={stage} className="rounded-full bg-[#F2F0EC] px-2 py-0.5 text-[10px] text-[#6B6B6B]">
+                {GUIDE_STAGE_LABELS[stage]}
+              </span>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onToggle(guide.id)}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+            guide.enabled ? 'bg-[#FF9F43]' : 'bg-[#D9D4CC]'
+          }`}
+          title={guide.enabled ? '点击停用' : '点击启用'}
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+              guide.enabled ? 'left-[22px]' : 'left-0.5'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3 border-t border-[#F2F0EC] pt-2 text-xs">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-1 text-[#6B6B6B] hover:text-[#1A1A1A]"
+        >
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {expanded ? '收起内容' : '查看内容'}
+        </button>
+        <button type="button" onClick={() => onEdit(guide)} className="text-[#6B6B6B] hover:text-[#1A1A1A]">
+          编辑
+        </button>
+        {!guide.builtIn && (
+          <button
+            type="button"
+            onClick={() => onDelete(guide.id)}
+            className="ml-auto flex items-center gap-1 text-red-500 hover:text-red-600"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            删除
+          </button>
+        )}
+      </div>
+
+      {expanded && (
+        <pre className="mt-3 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl bg-[#FAF7F2] p-3 text-[11px] leading-relaxed text-[#4A4A4A]">
+          {guide.content}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// ==================== 通用方法论：导入 ====================
+
+function GuideImportView({
+  text,
+  setText,
+  error,
+  onImport,
+  onCancel,
+}: {
+  text: string;
+  setText: (v: string) => void;
+  error: string;
+  onImport: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-[#FF9F43]/20 bg-[#FFF7ED] p-4">
+        <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-[#1A1A1A]">
+          <Upload className="h-4 w-4 text-[#FF9F43]" />
+          如何使用
+        </h3>
+        <ol className="list-decimal space-y-1 pl-5 text-xs text-[#6B6B6B]">
+          <li>把任意 skill 的 SKILL.md 内容整段粘贴到下面</li>
+          <li>带 YAML frontmatter（<code className="rounded bg-white px-1 py-0.5">--- name / description ---</code>）会自动识别名称与说明</li>
+          <li>也可以直接粘贴一段你自己的写作方法论</li>
+          <li>导入后默认对所有环节生效，可在列表里编辑适用范围</li>
+        </ol>
+      </div>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">粘贴 SKILL.md 或方法论文本</label>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={12}
+          placeholder={'---\nname: 我的选题方法论\ndescription: 一句话说明\n---\n\n# 标题\n\n正文内容...'}
+          className="mac-textarea !min-h-[240px] !font-mono !text-xs"
+        />
+      </section>
+
+      {error && <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">{error}</div>}
+
+      <div className="grid grid-cols-2 gap-3">
+        <button type="button" onClick={onCancel} className="mac-secondary-btn">
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={onImport}
+          disabled={!text.trim()}
+          className="mac-primary-btn disabled:opacity-50"
+        >
+          <Upload className="h-4 w-4" />
+          导入
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== 通用方法论：编辑 ====================
+
+function GuideEditor({
+  guide,
+  onUpdate,
+  onSave,
+  onCancel,
+}: {
+  guide: GuideSkill;
+  onUpdate: (updates: Partial<GuideSkill>) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">名称</label>
+        <input
+          value={guide.name}
+          onChange={(e) => onUpdate({ name: e.target.value })}
+          className="mac-input"
+        />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">说明</label>
+        <input
+          value={guide.description}
+          onChange={(e) => onUpdate({ description: e.target.value })}
+          className="mac-input"
+          placeholder="一句话说明这个方法论解决什么问题"
+        />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">适用环节</label>
+        <div className="flex flex-wrap gap-2">
+          {ALL_STAGES.map((stage) => {
+            const checked = guide.appliesTo.includes(stage);
+            return (
+              <button
+                key={stage}
+                type="button"
+                onClick={() =>
+                  onUpdate({
+                    appliesTo: checked
+                      ? guide.appliesTo.filter((s) => s !== stage)
+                      : [...guide.appliesTo, stage],
+                  })
+                }
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                  checked
+                    ? 'border-[#FF9F43] bg-[#FFF7ED] text-[#FF9F43]'
+                    : 'border-[#E8E4DE] text-[#6B6B6B]'
+                }`}
+              >
+                {GUIDE_STAGE_LABELS[stage]}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">方法论内容</label>
+        <textarea
+          value={guide.content}
+          onChange={(e) => onUpdate({ content: e.target.value })}
+          rows={14}
+          className="mac-textarea !min-h-[280px] !font-mono !text-xs"
+        />
+      </section>
+
+      <div className="grid grid-cols-2 gap-3">
+        <button type="button" onClick={onCancel} className="mac-secondary-btn">
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!guide.name.trim() || !guide.content.trim()}
+          className="mac-primary-btn disabled:opacity-50"
+        >
+          <Save className="h-4 w-4" />
+          保存
+        </button>
+      </div>
+
+      {guide.builtIn && (
+        <p className="text-xs text-[#6B6B6B]">提示：这是内置方法论，修改后可点列表里的「恢复内置」还原。</p>
+      )}
     </div>
   );
 }

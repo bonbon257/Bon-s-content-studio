@@ -192,3 +192,29 @@ export interface StyleSkillStore {
   skills: StyleSkill[];
   version: number;
 }
+
+// 通用爆文方法论 SKILL —— 从插件市场引入的"方法论文档"型 skill
+// 与 StyleSkill（从自己爆文提炼的风格模板）并列，可同时启用多个
+export type GuideStage = 'analyze' | 'generate' | 'title' | 'revise' | 'polish';
+
+export interface GuideSkill {
+  id: string;
+  name: string;
+  description: string;
+  // SKILL.md 原文（去掉 frontmatter）
+  content: string;
+  // 该 skill 适用于哪些生成环节
+  appliesTo: GuideStage[];
+  // 是否内置（来自插件市场打包）
+  builtIn: boolean;
+  // 来源说明 / 作者
+  source: string;
+  // 是否启用（可多选）
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface GuideSkillStore {
+  skills: GuideSkill[];
+  version: number;
+}

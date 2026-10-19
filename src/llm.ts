@@ -294,27 +294,34 @@ async function callChatJson<T>(
     throw new Error('缺少 LLM API Key，请在 .env.local 中配置 VITE_LLM_API_KEY。');
   }
 
-  // 智能注入：从 preferenceContext 中识别 SKILL 部分并前置
+  // 智能注入：把「风格 SKILL」「通用方法论 SKILL」从上下文中识别出来并前置
   let systemContent = '';
-  const prefCtx = options?.preferenceContext || '';
+  let prefPart = options?.preferenceContext || '';
 
-  // 检查是否包含风格 SKILL（以 【当前激活风格 SKILL 开头）
-  const skillMarker = '【当前激活风格 SKILL';
-  const skillIdx = prefCtx.indexOf(skillMarker);
-  let skillPart = '';
-  let prefPart = prefCtx;
+  const stripBlock = (text: string, marker: string) => {
+    const idx = text.indexOf(marker);
+    if (idx === -1) return { block: '', rest: text };
+    const nextSection = text.indexOf('\n\n【', idx + 1);
+    const endIdx = nextSection !== -1 ? nextSection : text.length;
+    return {
+      block: text.slice(idx, endIdx).trim(),
+      rest: (text.slice(0, idx) + text.slice(endIdx)).trim(),
+    };
+  };
 
-  if (skillIdx !== -1) {
-    // 找到 SKILL 结束标记（下一个 【 或 结尾）
-    const nextSection = prefCtx.indexOf('\n\n【', skillIdx + 1);
-    const endIdx = nextSection !== -1 ? nextSection : prefCtx.length;
-    skillPart = prefCtx.slice(skillIdx, endIdx).trim();
-    prefPart = prefCtx.slice(0, skillIdx).trim() + prefCtx.slice(endIdx).trim();
+  // 风格 SKILL：最高优先级
+  const styleBlock = stripBlock(prefPart, '【当前激活风格 SKILL');
+  prefPart = styleBlock.rest;
+  // 通用方法论 SKILL：次高优先级
+  const guideBlock = stripBlock(prefPart, '【通用爆文方法论 SKILL');
+  prefPart = guideBlock.rest;
+
+  if (styleBlock.block) {
+    systemContent += styleBlock.block;
+    systemContent += '\n\n';
   }
-
-  // 风格 SKILL 放在最前面，最高优先级
-  if (skillPart) {
-    systemContent += skillPart;
+  if (guideBlock.block) {
+    systemContent += guideBlock.block;
     systemContent += '\n\n';
   }
 
@@ -908,6 +915,7 @@ export async function polishText(params: {
   config: LlmConfig;
   original: string;
   context?: string;
+  preferenceContext?: string;
 }): Promise<PolishResult> {
   const payload = await callChatJson<PolishResult>(
     params.config,
@@ -923,7 +931,7 @@ ${params.context ? `场景：${params.context}` : ''}
 ${params.original}
 
 输出 JSON：{"polished":"润色后的完整文本","changes":["第1处：把xxx改成xxx，原因..."]}`,
-    { systemPrompt: POLISH_SYSTEM_PROMPT, temperature: 0.4 },
+    { systemPrompt: POLISH_SYSTEM_PROMPT, temperature: 0.4, preferenceContext: params.preferenceContext },
   );
 
   const polished = String(payload?.polished || '').trim();
