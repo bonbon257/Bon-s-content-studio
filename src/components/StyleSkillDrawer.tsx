@@ -188,6 +188,7 @@ export function StyleSkillDrawer({
       globalInstruction: editingSkill.globalInstruction,
       friendPersona: editingSkill.friendPersona,
     });
+    onActivate(editingSkill.id);
     handleBack();
   }
 
@@ -879,6 +880,21 @@ function SkillEditor({
           </div>
         </section>
       )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <button type="button" onClick={onCancel} className="mac-secondary-btn">
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!canSave}
+          className="mac-primary-btn disabled:opacity-50"
+        >
+          <Save className="h-4 w-4" />
+          {isNew ? '创建 SKILL' : '保存并应用'}
+        </button>
+      </div>
     </div>
   );
 }
