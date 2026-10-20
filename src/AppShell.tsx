@@ -4,6 +4,8 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   Copy,
   ExternalLink,
@@ -50,6 +52,7 @@ import { BUILT_IN_VIRAL_EXAMPLES } from './data/viralExamples';
 import { useHistory } from './hooks/useHistory';
 import { usePreferences } from './hooks/usePreferences';
 import { useStyleSkills } from './hooks/useStyleSkills';
+import { useChatSkills } from './hooks/useChatSkills';
 import { useGuideSkills } from './hooks/useGuideSkills';
 import {
   analyzeArticle,
@@ -984,6 +987,9 @@ function OutputResult({
           statuses={factCheckStatuses}
           onMark={onMarkFactCheck}
         />
+        {result.reasoning && (
+          <ReasoningPanel reasoning={result.reasoning} />
+        )}
         {polishChanges.length > 0 && (
           <div className="mt-4 rounded-[18px] bg-[#F5E6D0] p-3">
             <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#6B6B6B]">润色修改点</p>
@@ -1022,6 +1028,38 @@ function OutputResult({
         </button>
       </footer>
     </motion.div>
+  );
+}
+
+function ReasoningPanel({ reasoning }: { reasoning: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mt-3 rounded-[18px] border border-[#FF9F43]/20 bg-[#FFF7ED] p-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-[#FF9F43]" />
+          <span className="text-xs font-bold text-[#1A1A1A]">AI 思考过程</span>
+          <span className="rounded-full bg-[#FF9F43]/20 px-2 py-0.5 text-[10px] font-semibold text-[#FF9F43]">
+            推理
+          </span>
+        </div>
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 text-[#FF9F43]" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-[#FF9F43]" />
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-3 max-h-[300px] overflow-y-auto rounded-xl bg-white/60 p-3 text-xs leading-relaxed text-[#6B6B6B]">
+          <pre className="whitespace-pre-wrap font-sans">{reasoning}</pre>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2278,6 +2316,7 @@ export default function AppShell() {
   const [kbContext, setKbContext] = useState('');
   const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
   const styleSkills = useStyleSkills();
+  const chatSkills = useChatSkills();
   const guideSkills = useGuideSkills();
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
   const [themeDraft, setThemeDraft] = useState<ThemeSettings>(() => loadThemeSettings());
@@ -2608,6 +2647,7 @@ export default function AppShell() {
         currentChat: result.chat,
         instruction,
         mode,
+        chatSkillContext: chatSkills.skillContext,
       });
       setResult((prev) => ({ ...prev, chat: nextChat }));
       showToast(mode === 'fromPost' ? '聊天记录已根据正文和建议重生成' : '聊天记录已按你的建议重写');
@@ -2664,6 +2704,7 @@ export default function AppShell() {
         currentChat: result.chat,
         rowIndex: index,
         instruction,
+        chatSkillContext: chatSkills.skillContext,
       });
       setResult((prev) => ({
         ...prev,
@@ -2697,6 +2738,7 @@ export default function AppShell() {
         currentChat: chatLabRows,
         instruction: chatLabInstruction,
         mode,
+        chatSkillContext: chatSkills.skillContext,
       });
       setChatLabRows(nextChat);
       showToast(mode === 'fromPost' ? '聊天记录已生成' : '聊天记录已按建议重写');
@@ -2727,6 +2769,7 @@ export default function AppShell() {
         currentChat: chatLabRows,
         rowIndex: index,
         instruction: chatLabInstruction,
+        chatSkillContext: chatSkills.skillContext,
       });
       setChatLabRows((prev) => prev.map((row, idx) => (idx === index ? nextRow : row)));
       showToast('已重生成这一行聊天');
@@ -3030,6 +3073,8 @@ export default function AppShell() {
             open={styleSkillOpen}
             skills={styleSkills.skills}
             activeSkillId={styleSkills.activeSkill?.id || null}
+            chatSkills={chatSkills.skills}
+            activeChatSkillId={chatSkills.activeSkill?.id || null}
             config={config}
             onClose={() => setStyleSkillOpen(false)}
             onActivate={styleSkills.activateSkill}
@@ -3038,13 +3083,12 @@ export default function AppShell() {
             onDelete={styleSkills.deleteSkill}
             onDuplicate={styleSkills.duplicateSkill}
             onDeactivate={styleSkills.deactivateSkill}
-            guideSkills={guideSkills.skills}
-            onToggleGuide={guideSkills.toggleSkill}
-            onSetAllGuide={guideSkills.setAllEnabled}
-            onCreateGuide={guideSkills.createSkill}
-            onUpdateGuide={guideSkills.updateSkill}
-            onDeleteGuide={guideSkills.deleteSkill}
-            onResetGuideBuiltIns={guideSkills.resetBuiltIns}
+            onChatActivate={chatSkills.activateSkill}
+            onChatCreate={chatSkills.createSkill}
+            onChatUpdate={chatSkills.updateSkill}
+            onChatDelete={chatSkills.deleteSkill}
+            onChatDuplicate={chatSkills.duplicateSkill}
+            onChatDeactivate={chatSkills.deactivateSkill}
           />
 
           {coverOpen && (

@@ -45,6 +45,7 @@ export interface GenerationResult {
   tags: string[];
   chat: ChatRow[];
   factChecks?: FactCheckItem[];
+  reasoning?: string;
 }
 
 export interface AppRecommendationResult {
@@ -190,6 +191,46 @@ export interface StyleSkill {
 
 export interface StyleSkillStore {
   skills: StyleSkill[];
+  version: number;
+}
+
+// 聊天记录风格 SKILL —— 专门控制对话生成的风格、人设、节奏
+export interface ChatStyleSkill {
+  id: string;
+  name: string;
+  description: string;
+  // 对话轮数偏好
+  roundCount: number;
+  // 中国用户人设
+  chinesePersona: string;
+  // 外国用户人设（通用，会结合具体国家调整）
+  foreignPersona: string;
+  // 对话节奏
+  pace: string;
+  // 开场方式
+  openingStyle: string;
+  // 追问模式
+  followUpStyle: string;
+  // 语气风格
+  toneStyle: string;
+  // 语言难度（简单日常/地道表达/深度讨论）
+  languageLevel: string;
+  // 核心对话规则
+  chatRules: string;
+  // 常用表达/口头禅
+  commonPhrases: string;
+  // 参考聊天样本
+  samples: string[];
+  // 全局附加指令
+  globalInstruction: string;
+  // 是否激活
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatStyleSkillStore {
+  skills: ChatStyleSkill[];
   version: number;
 }
 

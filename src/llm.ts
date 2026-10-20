@@ -287,8 +287,8 @@ function extractJson<T>(text: string): T {
 async function callChatJson<T>(
   config: LlmConfig,
   userPrompt: string,
-  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean; preferenceContext?: string; skillContext?: string },
-): Promise<T> {
+  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean; preferenceContext?: string; skillContext?: string; chatSkillContext?: string },
+): Promise<T & { reasoning?: string }> {
   const useProxy = shouldUseCloudProxy();
   if (!useProxy && !config.apiKey.trim()) {
     throw new Error('缺少 LLM API Key，请在 .env.local 中配置 VITE_LLM_API_KEY。');
@@ -316,12 +316,19 @@ async function callChatJson<T>(
   const guideBlock = stripBlock(prefPart, '【通用爆文方法论 SKILL');
   prefPart = guideBlock.rest;
 
+  // 聊天风格 SKILL（如果有，且是聊天相关生成时传入）
+  const chatSkillPart = options?.chatSkillContext || '';
+
   if (styleBlock.block) {
     systemContent += styleBlock.block;
     systemContent += '\n\n';
   }
   if (guideBlock.block) {
     systemContent += guideBlock.block;
+    systemContent += '\n\n';
+  }
+  if (chatSkillPart) {
+    systemContent += chatSkillPart;
     systemContent += '\n\n';
   }
 
@@ -364,10 +371,15 @@ async function callChatJson<T>(
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
+  const reasoning = data?.choices?.[0]?.message?.reasoning_content || '';
   if (!content) {
     throw new Error('LLM API 没有返回内容。');
   }
-  return extractJson<T>(content);
+  const result = extractJson<T>(content);
+  if (reasoning) {
+    (result as any).reasoning = reasoning;
+  }
+  return result as T & { reasoning?: string };
 }
 
 function normalizeAngles(payload: { angles?: Angle[] }): Angle[] {
@@ -562,6 +574,7 @@ function normalizeResult(payload: GenerationResult): GenerationResult {
       foreign: String(row?.foreign || '').trim(),
     })),
     factChecks: normalizeFactChecks(payload.factChecks),
+    reasoning: (payload as any).reasoning || undefined,
   };
 }
 
@@ -995,6 +1008,7 @@ export async function regenerateChat(params: {
   currentChat?: ChatRow[];
   instruction?: string;
   mode: 'fromPost' | 'continueFromEdited';
+  chatSkillContext?: string;
 }): Promise<ChatRow[]> {
   const payload = await callChatJson<{ chat: ChatRow[] }>(
     getChatConfig(params.config),
@@ -1029,7 +1043,7 @@ ${JSON.stringify(params.currentChat || [], null, 2)}
 10. 聊天内容要和正文主题强相关，不能跑偏；要让人感觉"看完正文就想看这段聊天"。
 
 请严格输出 JSON：{"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}]}`,
-    { temperature: 0.65, useChatModel: true },
+    { temperature: 0.65, useChatModel: true, chatSkillContext: params.chatSkillContext },
   );
   return normalizeChatRows(payload.chat);
 }
@@ -1044,6 +1058,7 @@ export async function regenerateChatRow(params: {
   currentChat: ChatRow[];
   rowIndex: number;
   instruction?: string;
+  chatSkillContext?: string;
 }): Promise<ChatRow> {
   const currentRow = params.currentChat[params.rowIndex];
   const payload = await callChatJson<{ row: ChatRow }>(
@@ -1076,7 +1091,7 @@ ${JSON.stringify(currentRow || {}, null, 2)}
 5. 不新增具体数字、政策、法规；不确定内容用模糊说法。
 
 请严格输出 JSON：{"row":{"target":"中国用户或外国用户","chinese":"...","foreign":"..."}}`,
-    { temperature: 0.68, useChatModel: true },
+    { temperature: 0.68, useChatModel: true, chatSkillContext: params.chatSkillContext },
   );
   return normalizeChatRows([payload.row])[0] || currentRow || { target: '外国用户', chinese: '', foreign: '' };
 }
@@ -1161,6 +1176,82 @@ ${params.platform ? `平台：${params.platform}` : ''}
     targetLength: Number(payload?.targetLength) || 150,
     globalInstruction: String(payload?.globalInstruction || '').trim(),
     friendPersona: String(payload?.friendPersona || '').trim(),
+  };
+}
+
+// ===================== 聊天风格 SKILL 提炼 =====================
+
+export interface ExtractedChatStyleSkill {
+  name: string;
+  description: string;
+  roundCount: number;
+  chinesePersona: string;
+  foreignPersona: string;
+  pace: string;
+  openingStyle: string;
+  followUpStyle: string;
+  toneStyle: string;
+  languageLevel: string;
+  chatRules: string;
+  commonPhrases: string;
+  globalInstruction: string;
+}
+
+export async function extractChatStyleFromSamples(params: {
+  config: LlmConfig;
+  samples: string[];
+}): Promise<ExtractedChatStyleSkill> {
+  const sampleText = params.samples
+    .map((s, i) => `【聊天样本${i + 1}】\n${s.trim()}`)
+    .join('\n\n');
+
+  const payload = await callChatJson<ExtractedChatStyleSkill>(
+    params.config,
+    `你是一位资深对话设计专家，擅长从真实聊天记录中提炼可复用的对话风格模板。
+
+请仔细分析以下 ${params.samples.length} 段聊天记录样本，提炼出它们共同的对话风格和人物设定规律。你的分析必须精准、具体、可操作。
+
+${sampleText}
+
+请从以下维度逐一分析并提炼规则：
+
+1. **name**：给这个聊天风格起一个好记的名字（不超过 8 个字）
+2. **description**：一句话描述这个风格的核心特征（不超过 30 字）
+3. **roundCount**：平均对话轮数（取整数，8-12之间）
+4. **chinesePersona**：中国用户的人设特征（性格、说话方式、常用语气等）
+5. **foreignPersona**：外国用户的人设特征（性格、说话方式、反应模式等）
+6. **pace**：对话节奏（快节奏短句/慢节奏长句/有张有弛？描述具体特征）
+7. **openingStyle**：开场方式（怎么开启话题、第一句话通常怎么说）
+8. **followUpStyle**：追问模式（怎么接话、怎么追问、怎么延伸话题）
+9. **toneStyle**：语气风格（轻松吐槽/认真好奇/朋友闲聊/等，要具体）
+10. **languageLevel**：语言难度（简单日常/地道表达/深度讨论，具体说明）
+11. **chatRules**：核心对话规则，3-5 条最关键的对话要求，每条具体可执行
+12. **commonPhrases**：双方常用的表达、口头禅、语气词（如果有的话）
+13. **globalInstruction**：全局附加指令，任何时候都要遵守的 2-3 条铁律
+
+要求：
+- 所有分析必须基于样本实际内容，不要凭空想象
+- 规则要具体到"怎么说"，而不是"说得好"
+- 例如不要写"对话很自然"，要写"每轮对话不超过 2 句话，常用语气词结尾，像真实朋友聊天"
+
+请严格输出 JSON，不要任何额外说明。`,
+    { temperature: 0.3 },
+  );
+
+  return {
+    name: String(payload?.name || '自定义聊天风格').trim(),
+    description: String(payload?.description || '').trim(),
+    roundCount: Number(payload?.roundCount) || 10,
+    chinesePersona: String(payload?.chinesePersona || '').trim(),
+    foreignPersona: String(payload?.foreignPersona || '').trim(),
+    pace: String(payload?.pace || '').trim(),
+    openingStyle: String(payload?.openingStyle || '').trim(),
+    followUpStyle: String(payload?.followUpStyle || '').trim(),
+    toneStyle: String(payload?.toneStyle || '').trim(),
+    languageLevel: String(payload?.languageLevel || '').trim(),
+    chatRules: String(payload?.chatRules || '').trim(),
+    commonPhrases: String(payload?.commonPhrases || '').trim(),
+    globalInstruction: String(payload?.globalInstruction || '').trim(),
   };
 }
 
