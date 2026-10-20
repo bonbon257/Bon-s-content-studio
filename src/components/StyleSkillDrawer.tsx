@@ -587,8 +587,20 @@ function SkillCard({
       <div className="mt-3 flex gap-2">
         <button
           type="button"
+          onClick={onActivate}
+          disabled={isActive}
+          className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition ${
+            isActive
+              ? 'cursor-default bg-[#FF9F43]/15 text-[#FF9F43]'
+              : 'bg-[#FF9F43] text-white hover:bg-[#FF9F43]/90'
+          }`}
+        >
+          {isActive ? '使用中' : '应用'}
+        </button>
+        <button
+          type="button"
           onClick={onEdit}
-          className="flex-1 rounded-lg bg-[#F5F0E8] py-1.5 text-xs font-medium text-[#6B6B6B] transition hover:bg-[#EDE6D8]"
+          className="rounded-lg bg-[#F5F0E8] px-3 py-1.5 text-xs font-medium text-[#6B6B6B] transition hover:bg-[#EDE6D8]"
         >
           编辑
         </button>
@@ -1061,20 +1073,29 @@ function GuideCard({
             ))}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => onToggle(guide.id)}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-            guide.enabled ? 'bg-[#FF9F43]' : 'bg-[#D9D4CC]'
-          }`}
-          title={guide.enabled ? '点击停用' : '点击启用'}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-              guide.enabled ? 'left-[22px]' : 'left-0.5'
+        <div className="flex shrink-0 flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onToggle(guide.id)}
+            className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+              guide.enabled ? 'bg-[#FF9F43]' : 'bg-[#D9D4CC]'
             }`}
-          />
-        </button>
+            title={guide.enabled ? '点击停用' : '点击启用'}
+          >
+            <span
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                guide.enabled ? 'left-[22px]' : 'left-0.5'
+              }`}
+            />
+          </button>
+          <span
+            className={`text-[10px] font-semibold ${
+              guide.enabled ? 'text-[#FF9F43]' : 'text-[#6B6B6B]'
+            }`}
+          >
+            {guide.enabled ? '已应用' : '未应用'}
+          </span>
+        </div>
       </div>
 
       <div className="mt-3 flex items-center gap-3 border-t border-[#F2F0EC] pt-2 text-xs">
