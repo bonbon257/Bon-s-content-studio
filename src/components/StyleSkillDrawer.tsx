@@ -141,7 +141,7 @@ export function StyleSkillDrawer({
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      setView('edit');
+      setView('create');
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : '提炼失败');
     } finally {
