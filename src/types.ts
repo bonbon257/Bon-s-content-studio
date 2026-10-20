@@ -48,6 +48,29 @@ export interface GenerationResult {
   reasoning?: string;
 }
 
+// 单个方法论 SKILL 的审查结果
+export interface SkillReviewResult {
+  skillId: string;
+  skillName: string;
+  score: number; // 0-10
+  status: 'pass' | 'warning' | 'fail';
+  summary: string;
+  items: {
+    name: string;
+    pass: boolean;
+    detail: string;
+  }[];
+  suggestions: string[];
+}
+
+// 完整的内容审查报告
+export interface ContentReviewReport {
+  overallScore: number;
+  overallStatus: 'pass' | 'warning' | 'fail';
+  reviews: SkillReviewResult[];
+  reasoning?: string;
+}
+
 export interface AppRecommendationResult {
   title: string;
   post: string;

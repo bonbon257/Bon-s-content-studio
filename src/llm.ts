@@ -2,11 +2,13 @@ import type {
   Angle,
   AppRecommendationResult,
   ChatRow,
+  ContentReviewReport,
   ContentRevisionResult,
   Country,
   FactCheckItem,
   GenerationResult,
   GeneratedContentResearchResult,
+  GuideSkill,
   LlmConfig,
   Platform,
   PolishResult,
@@ -1252,6 +1254,106 @@ ${sampleText}
     chatRules: String(payload?.chatRules || '').trim(),
     commonPhrases: String(payload?.commonPhrases || '').trim(),
     globalInstruction: String(payload?.globalInstruction || '').trim(),
+  };
+}
+
+// ===================== 内容审查：用方法论 SKILL 二次质检 =====================
+
+export async function reviewContentWithSkills(params: {
+  config: LlmConfig;
+  title: string;
+  post: string;
+  tags: string[];
+  platform: Platform;
+  reviewSkills: GuideSkill[];
+  styleSkillName?: string;
+}): Promise<ContentReviewReport> {
+  if (params.reviewSkills.length === 0) {
+    return {
+      overallScore: 10,
+      overallStatus: 'pass',
+      reviews: [],
+    };
+  }
+
+  const skillsText = params.reviewSkills
+    .map(
+      (s, i) =>
+        `【审查标准 ${i + 1}：${s.name}】\n${s.content.trim().slice(0, 3000)}`,
+    )
+    .join('\n\n');
+
+  const payload = await callChatJson<ContentReviewReport>(
+    params.config,
+    `你是一位严格的内容质量审查官。请根据以下 ${params.reviewSkills.length} 套审查标准，对这篇小红书笔记做全面质检。
+
+【待审查内容】
+标题：${params.title}
+正文：
+${params.post}
+标签：${params.tags.join(' ')}
+平台：${params.platform}
+${params.styleSkillName ? `当前风格 SKILL：${params.styleSkillName}` : ''}
+
+【审查标准】
+${skillsText}
+
+【要求】
+1. 逐条对照每套标准，给出 0-10 分的评分
+2. 每套标准列出 3-6 个具体检查项，每项标明 pass/warning/fail 和简短说明
+3. 给出 2-3 条具体的改进建议
+4. 最后给出总分（各标准平均分，保留 1 位小数）和总体状态（pass/warning/fail）
+   - pass：≥ 8 分
+   - warning：6-7.9 分
+   - fail：< 6 分
+5. 评分要严格，不要放水，7 分是正常水平，9 分以上是真正的爆款
+6. 所有判断必须基于内容实际情况，不要凭空捏造
+
+请严格输出 JSON：
+{
+  "overallScore": 7.5,
+  "overallStatus": "warning",
+  "reviews": [
+    {
+      "skillId": "xxx",
+      "skillName": "内容评分卡",
+      "score": 7,
+      "status": "warning",
+      "summary": "整体结构完整，但缺少互动引导",
+      "items": [
+        {"name": "痛点钩子", "pass": true, "detail": "开头直接抛出反常识问题"},
+        {"name": "互动引导", "pass": false, "detail": "结尾没有引导评论"}
+      ],
+      "suggestions": ["结尾加一个开放性问题引导讨论"]
+    }
+  ]
+}`,
+    { temperature: 0.3 },
+  );
+
+  // 把 skillId 对应上
+  const reviews = (payload.reviews || []).map((r, i) => ({
+    ...r,
+    skillId: params.reviewSkills[i]?.id || r.skillId || `review-${i}`,
+    skillName: params.reviewSkills[i]?.name || r.skillName || `审查 ${i + 1}`,
+    score: typeof r.score === 'number' ? Math.max(0, Math.min(10, r.score)) : 7,
+    status: r.status === 'pass' || r.status === 'warning' || r.status === 'fail' ? r.status : 'warning' as const,
+    items: Array.isArray(r.items) ? r.items.slice(0, 8) : [],
+    suggestions: Array.isArray(r.suggestions) ? r.suggestions.slice(0, 5) : [],
+  }));
+
+  const overallScore = reviews.length > 0
+    ? reviews.reduce((sum, r) => sum + r.score, 0) / reviews.length
+    : 10;
+
+  const overallStatus: 'pass' | 'warning' | 'fail' =
+    overallScore >= 8 ? 'pass' : overallScore >= 6 ? 'warning' : 'fail';
+
+  return {
+    overallScore: Math.round(overallScore * 10) / 10,
+    overallStatus,
+    reviews,
+    reasoning: (payload as any).reasoning,
   };
 }
 

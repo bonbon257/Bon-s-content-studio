@@ -71,6 +71,7 @@ import {
   regenerateTitle,
   researchGeneratedContent,
   researchTopic,
+  reviewContentWithSkills,
   reviseGeneratedContent,
   saveConfig,
 } from './llm';
@@ -79,6 +80,7 @@ import type {
   Angle,
   AppRecommendationResult,
   ChatRow,
+  ContentReviewReport,
   Country,
   FactCheckItem,
   GenerationResult,
@@ -831,6 +833,11 @@ function OutputResult({
   contentResearchLoading,
   contentResearchError,
   chatRowCount,
+  styleSkillName,
+  chatSkillName,
+  enabledGuideSkills,
+  reviewReport,
+  reviewLoading,
   onBack,
   onCopy,
   onTitleChange,
@@ -845,6 +852,7 @@ function OutputResult({
   onSave,
   onOpenChatModal,
   onOpenCover,
+  onReReview,
 }: {
   result: GenerationResult;
   factCheckStatuses: Record<number, FactCheckStatus>;
@@ -858,6 +866,11 @@ function OutputResult({
   contentResearchLoading: boolean;
   contentResearchError: string;
   chatRowCount: number;
+  styleSkillName?: string;
+  chatSkillName?: string;
+  enabledGuideSkills: Array<{ id: string; name: string }>;
+  reviewReport: ContentReviewReport | null;
+  reviewLoading: boolean;
   onBack: () => void;
   onCopy: (text: string) => void;
   onTitleChange: (value: string) => void;
@@ -872,6 +885,7 @@ function OutputResult({
   onSave: () => void;
   onOpenChatModal: () => void;
   onOpenCover: () => void;
+  onReReview: () => void;
 }) {
   const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean);
   const tagText = cleanTags.map((tag) => `#${tag}`).join(' ');
@@ -982,6 +996,14 @@ function OutputResult({
             {chatRowCount > 0 ? `查看聊天记录 (${chatRowCount}条)` : '生成并查看聊天记录'}
           </button>
         </div>
+
+        {/* 本次生效 SKILL */}
+        <ActiveSkillsPanel
+          styleSkillName={styleSkillName}
+          chatSkillName={chatSkillName}
+          guideSkills={enabledGuideSkills}
+        />
+
         <FactCheckPanel
           items={(result.factChecks || []) as FactCheckItem[]}
           statuses={factCheckStatuses}
@@ -990,6 +1012,14 @@ function OutputResult({
         {result.reasoning && (
           <ReasoningPanel reasoning={result.reasoning} />
         )}
+
+        {/* 内容审查报告 */}
+        <ContentReviewPanel
+          report={reviewReport}
+          loading={reviewLoading}
+          hasEnabledGuides={enabledGuideSkills.length > 0}
+          onReReview={onReReview}
+        />
         {polishChanges.length > 0 && (
           <div className="mt-4 rounded-[18px] bg-[#F5E6D0] p-3">
             <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#6B6B6B]">润色修改点</p>
@@ -1057,6 +1087,228 @@ function ReasoningPanel({ reasoning }: { reasoning: string }) {
       {expanded && (
         <div className="mt-3 max-h-[300px] overflow-y-auto rounded-xl bg-white/60 p-3 text-xs leading-relaxed text-[#6B6B6B]">
           <pre className="whitespace-pre-wrap font-sans">{reasoning}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== 本次生效 SKILL 面板 ====================
+function ActiveSkillsPanel({
+  styleSkillName,
+  chatSkillName,
+  guideSkills,
+}: {
+  styleSkillName?: string;
+  chatSkillName?: string;
+  guideSkills: Array<{ id: string; name: string }>;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const hasAny = styleSkillName || chatSkillName || guideSkills.length > 0;
+
+  if (!hasAny) {
+    return (
+      <div className="mt-3 rounded-[18px] border border-dashed border-[#E8E4DE] bg-white/50 p-3 text-center text-xs text-[#B8B5CC]">
+        <Sparkles className="mx-auto mb-1 h-4 w-4" />
+        还没有激活任何风格 SKILL 或方法论
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-[18px] border border-[#C9EBCA]/50 bg-[#F0FAF0] p-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-[#2D7A3A]" />
+          <span className="text-xs font-bold text-[#1A1A1A]">本次生效 SKILL</span>
+          <span className="rounded-full bg-[#C9EBCA] px-2 py-0.5 text-[10px] font-semibold text-[#2D7A3A]">
+            {(styleSkillName ? 1 : 0) + (chatSkillName ? 1 : 0) + guideSkills.length} 个
+          </span>
+        </div>
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 text-[#2D7A3A]" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-[#2D7A3A]" />
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {styleSkillName && (
+            <div className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2">
+              <span className="rounded-full bg-[#FF9F43]/20 px-2 py-0.5 text-[10px] font-bold text-[#FF9F43]">
+                风格
+              </span>
+              <span className="text-sm font-medium text-[#1A1A1A]">{styleSkillName}</span>
+            </div>
+          )}
+          {chatSkillName && (
+            <div className="flex items-center gap-2 rounded-xl bg-white/70 px-3 py-2">
+              <span className="rounded-full bg-[#B8B5FF]/30 px-2 py-0.5 text-[10px] font-bold text-[#6B63D8]">
+                聊天
+              </span>
+              <span className="text-sm font-medium text-[#1A1A1A]">{chatSkillName}</span>
+            </div>
+          )}
+          {guideSkills.length > 0 && (
+            <div className="rounded-xl bg-white/70 px-3 py-2">
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="rounded-full bg-[#C9EBCA] px-2 py-0.5 text-[10px] font-bold text-[#2D7A3A]">
+                  方法论
+                </span>
+                <span className="text-xs text-[#6B6B6B]">{guideSkills.length} 个已启用</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {guideSkills.map((s) => (
+                  <span
+                    key={s.id}
+                    className="rounded-full bg-[#F0FAF0] px-2 py-0.5 text-[10px] text-[#2D7A3A]"
+                  >
+                    {s.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== 内容审查报告面板 ====================
+function ContentReviewPanel({
+  report,
+  loading,
+  hasEnabledGuides,
+  onReReview,
+}: {
+  report: ContentReviewReport | null;
+  loading: boolean;
+  hasEnabledGuides: boolean;
+  onReReview: () => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  const statusConfig = {
+    pass: { label: '优秀', color: 'text-[#2D7A3A]', bg: 'bg-[#C9EBCA]', border: 'border-[#C9EBCA]' },
+    warning: { label: '待优化', color: 'text-[#B86B00]', bg: 'bg-[#FFE4C4]', border: 'border-[#FFE4C4]' },
+    fail: { label: '需改进', color: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200' },
+  };
+
+  if (!hasEnabledGuides) {
+    return (
+      <div className="mt-3 rounded-[18px] border border-dashed border-[#E8E4DE] bg-white/50 p-3 text-center">
+        <p className="text-xs text-[#B8B5CC]">启用方法论 SKILL 后，生成内容会自动质检</p>
+      </div>
+    );
+  }
+
+  if (loading && !report) {
+    return (
+      <div className="mt-3 rounded-[18px] border border-[#FF9F43]/20 bg-[#FFF7ED] p-4">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-[#FF9F43]" />
+          <span className="text-sm font-medium text-[#1A1A1A]">AI 正在质检内容...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div className="mt-3 rounded-[18px] border border-dashed border-[#E8E4DE] bg-white/50 p-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-[#6B6B6B]">点击按钮审查当前内容</p>
+          <button type="button" onClick={onReReview} className="mac-mini-btn">
+            <Sparkles className="h-3.5 w-3.5" />
+            开始质检
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const status = statusConfig[report.overallStatus];
+
+  return (
+    <div className={`mt-3 rounded-[18px] border ${status.border} bg-white p-3`}>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className={`h-4 w-4 ${status.color}`} />
+          <span className="text-xs font-bold text-[#1A1A1A]">内容质检报告</span>
+          <span className={`rounded-full ${status.bg} px-2 py-0.5 text-[10px] font-bold ${status.color}`}>
+            {report.overallScore} 分 · {status.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReReview();
+            }}
+            className="mac-mini-btn"
+            title="重新审查"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          {expanded ? (
+            <ChevronUp className={`h-4 w-4 ${status.color}`} />
+          ) : (
+            <ChevronDown className={`h-4 w-4 ${status.color}`} />
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {report.reviews.map((review) => {
+            const rStatus = statusConfig[review.status];
+            return (
+              <div key={review.skillId} className="rounded-xl bg-[#FAF7F2] p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={`rounded-full ${rStatus.bg} px-2 py-0.5 text-[10px] font-bold ${rStatus.color}`}>
+                      {review.score} 分
+                    </span>
+                    <span className="text-sm font-bold text-[#1A1A1A]">{review.skillName}</span>
+                  </div>
+                </div>
+                <p className="mb-2 text-xs text-[#6B6B6B]">{review.summary}</p>
+                <div className="space-y-1">
+                  {review.items.map((item, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <span className={item.pass ? 'text-[#2D7A3A]' : 'text-[#E55353]'}>
+                        {item.pass ? '✓' : '✗'}
+                      </span>
+                      <div>
+                        <span className="font-medium text-[#1A1A1A]">{item.name}</span>
+                        <span className="text-[#6B6B6B]"> — {item.detail}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {review.suggestions.length > 0 && (
+                  <div className="mt-2 rounded-lg bg-[#FFF7ED] p-2">
+                    <p className="mb-1 text-[10px] font-bold text-[#FF9F43]">💡 改进建议</p>
+                    <ul className="space-y-0.5 text-xs text-[#6B6B6B]">
+                      {review.suggestions.map((s, i) => (
+                        <li key={i}>• {s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1415,6 +1667,11 @@ function DynamicCard({
   contentResearchResult,
   contentResearchLoading,
   contentResearchError,
+  styleSkillName,
+  chatSkillName,
+  enabledGuideSkills,
+  reviewReport,
+  reviewLoading,
   onSelectAngle,
   onGenerate,
   onAddCustomAngle,
@@ -1436,6 +1693,7 @@ function DynamicCard({
   onSave,
   onOpenChatModal,
   onOpenCover,
+  onReReview,
 }: {
   stage: Stage;
   angles: Angle[];
@@ -1454,6 +1712,11 @@ function DynamicCard({
   contentResearchResult: GeneratedContentResearchResult | null;
   contentResearchLoading: boolean;
   contentResearchError: string;
+  styleSkillName?: string;
+  chatSkillName?: string;
+  enabledGuideSkills: Array<{ id: string; name: string }>;
+  reviewReport: ContentReviewReport | null;
+  reviewLoading: boolean;
   onSelectAngle: (id: number) => void;
   onGenerate: () => void;
   onAddCustomAngle: (angle: Angle) => void;
@@ -1475,6 +1738,7 @@ function DynamicCard({
   onSave: () => void;
   onOpenChatModal: () => void;
   onOpenCover: () => void;
+  onReReview: () => void;
 }) {
   return (
     <section className="mac-card mac-dynamic-card">
@@ -1505,6 +1769,11 @@ function DynamicCard({
             contentResearchLoading={contentResearchLoading}
             contentResearchError={contentResearchError}
             chatRowCount={result.chat?.length || 0}
+            styleSkillName={styleSkillName}
+            chatSkillName={chatSkillName}
+            enabledGuideSkills={enabledGuideSkills}
+            reviewReport={reviewReport}
+            reviewLoading={reviewLoading}
             onBack={onBack}
             onCopy={onCopy}
             onTitleChange={onTitleChange}
@@ -1519,6 +1788,7 @@ function DynamicCard({
             onSave={onSave}
             onOpenChatModal={onOpenChatModal}
             onOpenCover={onOpenCover}
+            onReReview={onReReview}
           />
         )}
       </AnimatePresence>
@@ -2293,6 +2563,8 @@ export default function AppShell() {
   const [angles, setAngles] = useState<Angle[]>([]);
   const [selectedAngleId, setSelectedAngleId] = useState<number | null>(null);
   const [result, setResult] = useState<GenerationResult>(emptyResult);
+  const [reviewReport, setReviewReport] = useState<ContentReviewReport | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [factCheckStatuses, setFactCheckStatuses] = useState<Record<number, FactCheckStatus>>({});
   const [loading, setLoading] = useState<'analyze' | 'generate' | null>(null);
   const [polishingField, setPolishingField] = useState<'title' | 'post' | null>(null);
@@ -2482,6 +2754,25 @@ export default function AppShell() {
       setPostHistory([]);
       setContentResearchResult(null);
       setContentResearchError('');
+      // 自动触发内容审查
+      const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
+      if (enabledGuides.length > 0) {
+        setReviewLoading(true);
+        reviewContentWithSkills({
+          config,
+          title: nextResult.title,
+          post: nextResult.post,
+          tags: nextResult.tags,
+          platform,
+          reviewSkills: enabledGuides,
+          styleSkillName: styleSkills.activeSkill?.name,
+        })
+          .then((report) => setReviewReport(report))
+          .catch(() => setReviewReport(null))
+          .finally(() => setReviewLoading(false));
+      } else {
+        setReviewReport(null);
+      }
       history.add({
         country,
         topic,
@@ -2502,6 +2793,31 @@ export default function AppShell() {
       showToast(message);
     } finally {
       setLoading(null);
+    }
+  }
+
+  async function handleReReview() {
+    const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
+    if (enabledGuides.length === 0) {
+      showToast('请先在方法论 SKILL 里启用至少一个审查标准');
+      return;
+    }
+    setReviewLoading(true);
+    try {
+      const report = await reviewContentWithSkills({
+        config,
+        title: result.title,
+        post: result.post,
+        tags: result.tags,
+        platform,
+        reviewSkills: enabledGuides,
+        styleSkillName: styleSkills.activeSkill?.name,
+      });
+      setReviewReport(report);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '审查失败');
+    } finally {
+      setReviewLoading(false);
     }
   }
 
@@ -3275,6 +3591,11 @@ export default function AppShell() {
                 contentResearchResult={contentResearchResult}
                 contentResearchLoading={contentResearchLoading}
                 contentResearchError={contentResearchError}
+                styleSkillName={styleSkills.activeSkill?.name}
+                chatSkillName={chatSkills.activeSkill?.name}
+                enabledGuideSkills={guideSkills.skills.filter((s) => s.enabled)}
+                reviewReport={reviewReport}
+                reviewLoading={reviewLoading}
                 onSelectAngle={setSelectedAngleId}
                 onGenerate={handleGenerate}
                 onAddCustomAngle={handleAddCustomAngle}
@@ -3304,6 +3625,7 @@ export default function AppShell() {
                 onSave={handleManualSave}
                 onOpenChatModal={() => setChatModalOpen(true)}
                 onOpenCover={() => setCoverOpen(true)}
+                onReReview={handleReReview}
               />
             </div>
           )}
