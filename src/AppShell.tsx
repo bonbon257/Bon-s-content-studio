@@ -3089,6 +3089,13 @@ export default function AppShell() {
             onChatDelete={chatSkills.deleteSkill}
             onChatDuplicate={chatSkills.duplicateSkill}
             onChatDeactivate={chatSkills.deactivateSkill}
+            guideSkills={guideSkills.skills}
+            onToggleGuide={guideSkills.toggleSkill}
+            onSetAllGuide={guideSkills.setAllEnabled}
+            onCreateGuide={guideSkills.createSkill}
+            onUpdateGuide={guideSkills.updateSkill}
+            onDeleteGuide={guideSkills.deleteSkill}
+            onResetGuideBuiltIns={guideSkills.resetBuiltIns}
           />
 
           {coverOpen && (
