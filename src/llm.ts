@@ -717,6 +717,7 @@ export async function generateAppRecommendation(params: {
   config: LlmConfig;
   topic: string;
   material?: string;
+  preferenceContext?: string;
 }): Promise<AppRecommendationResult> {
   const payload = await callChatJson<AppRecommendationResult>(
     params.config,
@@ -740,7 +741,7 @@ ${params.material?.trim() || '用户未提供素材，请按常识选择不属�
 - 标题和正文是否避开违禁词：最、神器、推荐、种草、必备、安利等？
 
 请严格输出 JSON，不要 Markdown。`,
-    { systemPrompt: APP_RECOMMENDATION_SYSTEM_PROMPT, temperature: 0.72 },
+    { systemPrompt: APP_RECOMMENDATION_SYSTEM_PROMPT, temperature: 0.72, preferenceContext: params.preferenceContext },
   );
   return normalizeAppRecommendation(payload, params.topic);
 }

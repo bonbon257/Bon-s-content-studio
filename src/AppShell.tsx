@@ -1932,6 +1932,10 @@ function AppRecommendationView({
   onRevise,
   onClear,
   onCopy,
+  styleSkills,
+  appStyleSkillId,
+  enabledGuideCount,
+  onSelectAppStyleSkill,
 }: {
   topic: string;
   material: string;
@@ -1939,6 +1943,10 @@ function AppRecommendationView({
   loading: boolean;
   revising: boolean;
   error: string;
+  styleSkills: Array<{ id: string; name: string }>;
+  appStyleSkillId: string | null;
+  enabledGuideCount: number;
+  onSelectAppStyleSkill: (id: string | null) => void;
   onTopicChange: (value: string) => void;
   onMaterialChange: (value: string) => void;
   onResultChange: (value: AppRecommendationResult) => void;
@@ -1990,6 +1998,29 @@ function AppRecommendationView({
               placeholder="例如：马上要去日本玩想学点日语"
               className="mac-input"
             />
+          </label>
+
+          <label className="block">
+            <span className="mac-label">风格 SKILL（仅作用于 APP 推荐）</span>
+            <select
+              value={appStyleSkillId || ''}
+              onChange={(event) => onSelectAppStyleSkill(event.target.value || null)}
+              className="mac-input"
+            >
+              <option value="">不使用风格 SKILL</option>
+              {styleSkills.map((skill) => (
+                <option key={skill.id} value={skill.id}>
+                  {skill.name}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-[#6B6B6B]">
+              {styleSkills.length === 0
+                ? '还没有风格 SKILL，可在顶部「SKILL」里从爆文提炼。'
+                : enabledGuideCount > 0
+                  ? `与文章生成的选择互不影响，同时参考 ${enabledGuideCount} 个已启用的方法论 SKILL。`
+                  : '与文章生成的选择互不影响；启用方法论 SKILL 后会自动参考。'}
+            </span>
           </label>
 
           <label className="block">
@@ -3416,7 +3447,12 @@ export default function AppShell() {
     setAppError('');
     setAppLoading(true);
     try {
-      const nextResult = await generateAppRecommendation({ config, topic: appTopic, material: appMaterial });
+      const nextResult = await generateAppRecommendation({
+        config,
+        topic: appTopic,
+        material: appMaterial,
+        preferenceContext: buildFullContext('generate', 'app'),
+      });
       setAppResult(nextResult);
       showToast('APP推荐贴已生成');
     } catch (err) {
@@ -3449,6 +3485,7 @@ export default function AppShell() {
         tags: appResult.tags,
         instruction: value,
         sourceContext: [appTopic, appMaterial ? `素材文档：\n${appMaterial}` : ''].filter(Boolean).join('\n\n'),
+        preferenceContext: buildFullContext('revise', 'app'),
       });
       setAppResult({
         title: next.title,
@@ -3606,11 +3643,12 @@ export default function AppShell() {
     });
   }, [kbOpen]);
 
-  function buildFullContext(stage?: GuideStage) {
+  function buildFullContext(stage?: GuideStage, module: 'article' | 'app' = 'article') {
     const parts: string[] = [];
     // 1. 风格 SKILL（最高优先级，callChatJson 会自动识别并前置）
-    if (styleSkills.skillContext) {
-      parts.push(styleSkills.skillContext);
+    const moduleSkillContext = module === 'app' ? styleSkills.appSkillContext : styleSkills.skillContext;
+    if (moduleSkillContext) {
+      parts.push(moduleSkillContext);
     }
     // 2. 通用爆文方法论 SKILL（按当前环节自动筛选已启用的）
     const guideContext = guideSkills.buildContext(stage);
@@ -3678,7 +3716,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} cloudState={cloudState} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, styleSkills.appSkill ? `${styleSkills.appSkill.name}（APP）` : '', guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} cloudState={cloudState} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
@@ -3778,6 +3816,10 @@ export default function AppShell() {
                 loading={appLoading}
                 revising={appRevising}
                 error={appError}
+                styleSkills={styleSkills.skills.map((s) => ({ id: s.id, name: s.name }))}
+                appStyleSkillId={styleSkills.appSkill?.id || null}
+                enabledGuideCount={guideSkills.skills.filter((s) => s.enabled).length}
+                onSelectAppStyleSkill={(id) => styleSkills.setModuleSkill('app', id)}
                 onTopicChange={(value) => {
                   setAppTopic(value);
                   setAppError('');

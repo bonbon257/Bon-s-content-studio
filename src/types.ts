@@ -175,6 +175,9 @@ export interface UserPreferences {
   version: number;
 }
 
+// 风格 SKILL 可应用的功能模块（同一模块同时只生效一个）
+export type StyleSkillModule = 'article' | 'app';
+
 // 风格 SKILL —— 从爆文中提炼的完整写作风格模板
 export interface StyleSkill {
   id: string;
@@ -206,6 +209,8 @@ export interface StyleSkill {
   friendPersona: string;
   // 是否为当前激活的 SKILL
   active: boolean;
+  // 该 SKILL 当前生效的功能模块（每个模块同时只认一个）
+  appliesTo?: StyleSkillModule[];
   // 创建时间
   createdAt: string;
   // 更新时间
