@@ -1162,6 +1162,8 @@ function ChatResult({
   rows,
   loading,
   rowLoadingIndex,
+  scene,
+  onSceneChange,
   onChange,
   onCopy,
   onRegenerate,
@@ -1171,11 +1173,13 @@ function ChatResult({
   rows: ChatRow[];
   loading: boolean;
   rowLoadingIndex: number | null;
+  scene: string;
+  onSceneChange: (value: string) => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
-  onRegenerate: (instruction?: string) => Promise<boolean>;
-  onContinue: (instruction?: string) => Promise<boolean>;
-  onRegenerateRow: (index: number, instruction?: string) => Promise<boolean>;
+  onRegenerate: (instruction?: string, scene?: string) => Promise<boolean>;
+  onContinue: (instruction?: string, scene?: string) => Promise<boolean>;
+  onRegenerateRow: (index: number, instruction?: string, scene?: string) => Promise<boolean>;
 }) {
   const [chatInstruction, setChatInstruction] = useState('');
 
@@ -1194,7 +1198,7 @@ function ChatResult({
           <button
             type="button"
             onClick={async () => {
-              const ok = await onRegenerate(chatInstruction);
+              const ok = await onRegenerate(chatInstruction, scene);
               if (ok) setChatInstruction('');
             }}
             className="mac-mini-btn"
@@ -1208,7 +1212,7 @@ function ChatResult({
               <button
                 type="button"
                 onClick={async () => {
-                  const ok = await onContinue(chatInstruction);
+                  const ok = await onContinue(chatInstruction, scene);
                   if (ok) setChatInstruction('');
                 }}
                 className="mac-mini-btn"
@@ -1280,7 +1284,7 @@ function ChatResult({
                         <button
                           type="button"
                           onClick={async () => {
-                            const ok = await onRegenerateRow(index, chatInstruction);
+                            const ok = await onRegenerateRow(index, chatInstruction, scene);
                             if (ok) setChatInstruction('');
                           }}
                           disabled={loading || rowLoadingIndex !== null}
@@ -1310,6 +1314,23 @@ function ChatResult({
           </p>
         </>
       )}
+      <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <label className="mac-label !mb-0">聊天场景 / 起因（可选）</label>
+          {scene.trim() && (
+            <button type="button" onClick={() => onSceneChange('')} className="mac-clear-btn">
+              一键清空
+            </button>
+          )}
+        </div>
+        <textarea
+          value={scene}
+          onChange={(event) => onSceneChange(event.target.value)}
+          rows={2}
+          placeholder="例如：我在动态里吐槽被外国朋友追问收入，他看到后私信我解释为什么这么问；或者：他先在我的动态下留言，我才开始私聊。"
+          className="mac-textarea !min-h-[72px] !bg-white"
+        />
+      </div>
       <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
         <div className="mb-2 flex items-center justify-between gap-3">
           <label className="mac-label !mb-0">聊天记录修改建议</label>
@@ -1348,6 +1369,8 @@ function ChatModal({
   rows,
   loading,
   rowLoadingIndex,
+  scene,
+  onSceneChange,
   onClose,
   onChange,
   onCopy,
@@ -1359,12 +1382,14 @@ function ChatModal({
   rows: ChatRow[];
   loading: boolean;
   rowLoadingIndex: number | null;
+  scene: string;
+  onSceneChange: (value: string) => void;
   onClose: () => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
-  onRegenerate: (instruction?: string) => Promise<boolean>;
-  onContinue: (instruction?: string) => Promise<boolean>;
-  onRegenerateRow: (index: number, instruction?: string) => Promise<boolean>;
+  onRegenerate: (instruction?: string, scene?: string) => Promise<boolean>;
+  onContinue: (instruction?: string, scene?: string) => Promise<boolean>;
+  onRegenerateRow: (index: number, instruction?: string, scene?: string) => Promise<boolean>;
 }) {
   if (!open) return null;
 
@@ -1397,6 +1422,8 @@ function ChatModal({
             rows={rows}
             loading={loading}
             rowLoadingIndex={rowLoadingIndex}
+            scene={scene}
+            onSceneChange={onSceneChange}
             onChange={onChange}
             onCopy={onCopy}
             onRegenerate={onRegenerate}
@@ -1777,12 +1804,14 @@ function ChatLabView({
   loading,
   rowLoadingIndex,
   instruction,
+  scene,
   error,
   onCountryChange,
   onPlatformChange,
   onTitleChange,
   onPostChange,
   onInstructionChange,
+  onSceneChange,
   onClearPost,
   onChange,
   onCopy,
@@ -1798,12 +1827,14 @@ function ChatLabView({
   loading: boolean;
   rowLoadingIndex: number | null;
   instruction: string;
+  scene: string;
   error: string;
   onCountryChange: (value: Country) => void;
   onPlatformChange: (value: Platform) => void;
   onTitleChange: (value: string) => void;
   onPostChange: (value: string) => void;
   onInstructionChange: (value: string) => void;
+  onSceneChange: (value: string) => void;
   onClearPost: () => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
@@ -1861,7 +1892,7 @@ function ChatLabView({
           <div className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
               <span className="mac-label !mb-0">输入内容</span>
-              {(title.trim() || post.trim() || instruction.trim() || rows.length > 0) && (
+              {(title.trim() || post.trim() || instruction.trim() || scene.trim() || rows.length > 0) && (
                 <button type="button" onClick={onClearPost} className="mac-clear-btn">
                   一键清空全部
                 </button>
@@ -1883,6 +1914,16 @@ function ChatLabView({
                 onChange={(event) => onPostChange(event.target.value)}
                 placeholder="粘贴你最终版的正文..."
                 className="mac-textarea"
+              />
+            </label>
+            <label>
+              <span className="mac-label">聊天场景 / 起因（可选）</span>
+              <textarea
+                value={scene}
+                onChange={(event) => onSceneChange(event.target.value)}
+                rows={2}
+                placeholder="例如：我在动态里吐槽被外国朋友追问收入，他看到后私信我解释为什么这么问。写明为什么会有这段聊天，生成的开场会更自然。"
+                className="mac-textarea !min-h-[72px]"
               />
             </label>
             <label>
@@ -2319,6 +2360,7 @@ export default function AppShell() {
   const [contentResearchLoading, setContentResearchLoading] = useState(false);
   const [contentResearchError, setContentResearchError] = useState('');
   const [chatModalOpen, setChatModalOpen] = useState(false);
+  const [chatScene, setChatScene] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
@@ -2345,6 +2387,7 @@ export default function AppShell() {
   const [chatLabTitle, setChatLabTitle] = useState('');
   const [chatLabPost, setChatLabPost] = useState('');
   const [chatLabInstruction, setChatLabInstruction] = useState('');
+  const [chatLabScene, setChatLabScene] = useState('');
   const [chatLabRows, setChatLabRows] = useState<ChatRow[]>([]);
   const [chatLabLoading, setChatLabLoading] = useState(false);
   const [chatLabRowLoadingIndex, setChatLabRowLoadingIndex] = useState<number | null>(null);
@@ -2746,7 +2789,11 @@ export default function AppShell() {
     }
   }
 
-  async function handleRegenerateChat(mode: 'fromPost' | 'continueFromEdited', instruction?: string) {
+  async function handleRegenerateChat(
+    mode: 'fromPost' | 'continueFromEdited',
+    instruction?: string,
+    scene?: string,
+  ) {
     if (!result.post.trim()) {
       showToast('请先生成或填写正文');
       return false;
@@ -2760,6 +2807,7 @@ export default function AppShell() {
         title: result.title,
         post: result.post,
         angle: selectedAngle?.title,
+        scene,
         currentChat: result.chat,
         instruction,
         mode,
@@ -2802,7 +2850,7 @@ export default function AppShell() {
     }
   }
 
-  async function handleRegenerateChatRow(index: number, instruction?: string) {
+  async function handleRegenerateChatRow(index: number, instruction?: string, scene?: string) {
     if (!result.post.trim()) {
       showToast('请先生成或填写正文');
       return false;
@@ -2816,6 +2864,7 @@ export default function AppShell() {
         title: result.title,
         post: result.post,
         angle: selectedAngle?.title,
+        scene,
         currentChat: result.chat,
         rowIndex: index,
         instruction,
@@ -2849,6 +2898,7 @@ export default function AppShell() {
         platform,
         title: chatLabTitle,
         post: chatLabPost,
+        scene: chatLabScene,
         currentChat: chatLabRows,
         instruction: chatLabInstruction,
         mode,
@@ -2879,6 +2929,7 @@ export default function AppShell() {
         platform,
         title: chatLabTitle,
         post: chatLabPost,
+        scene: chatLabScene,
         currentChat: chatLabRows,
         rowIndex: index,
         instruction: chatLabInstruction,
@@ -3148,11 +3199,13 @@ export default function AppShell() {
         rows={result.chat}
         loading={chatLoading}
         rowLoadingIndex={rowLoadingIndex}
+        scene={chatScene}
+        onSceneChange={setChatScene}
         onClose={() => setChatModalOpen(false)}
         onChange={(rows) => setResult((prev) => ({ ...prev, chat: rows }))}
         onCopy={handleCopy}
-        onRegenerate={(instruction) => handleRegenerateChat('fromPost', instruction)}
-        onContinue={(instruction) => handleRegenerateChat('continueFromEdited', instruction)}
+        onRegenerate={(instruction, scene) => handleRegenerateChat('fromPost', instruction, scene)}
+        onContinue={(instruction, scene) => handleRegenerateChat('continueFromEdited', instruction, scene)}
         onRegenerateRow={handleRegenerateChatRow}
       />
       <div className="mac-app-frame">
@@ -3308,16 +3361,19 @@ export default function AppShell() {
                 loading={chatLabLoading}
                 rowLoadingIndex={chatLabRowLoadingIndex}
                 instruction={chatLabInstruction}
+                scene={chatLabScene}
                 error={chatLabError}
                 onCountryChange={setCountry}
                 onPlatformChange={setPlatform}
                 onTitleChange={setChatLabTitle}
                 onPostChange={setChatLabPost}
                 onInstructionChange={setChatLabInstruction}
+                onSceneChange={setChatLabScene}
                 onClearPost={() => {
                   setChatLabTitle('');
                   setChatLabPost('');
                   setChatLabInstruction('');
+                  setChatLabScene('');
                   setChatLabRows([]);
                   setChatLabError('');
                 }}

@@ -1009,6 +1009,7 @@ export async function regenerateChat(params: {
   title: string;
   post: string;
   angle?: string;
+  scene?: string;
   currentChat?: ChatRow[];
   instruction?: string;
   mode: 'fromPost' | 'continueFromEdited';
@@ -1020,6 +1021,7 @@ export async function regenerateChat(params: {
 平台：${params.platform}
 目标外语：${LANGUAGE_MAP[params.country]}
 角度：${params.angle || '未提供'}
+聊天场景 / 起因（为什么会有这段聊天）：${params.scene?.trim() || '未提供，请根据正文自然引出对话'}。
 模式：${params.mode === 'fromPost' ? '根据当前正文完整重生成聊天' : '根据当前最新正文和修改建议，整份重写聊天记录，不要续写，不要追加到尾部'}
 用户对聊天记录的修改建议 / 想要方向：
 ${params.instruction?.trim() || '未提供，请根据正文和当前聊天自行优化。'}
@@ -1044,6 +1046,7 @@ ${JSON.stringify(params.currentChat || [], null, 2)}
 8. 如果用户建议和正文冲突，以用户建议为主，但不要偏离文化差异和 HelloTalk 聊天场景。
 9. 聊天记录必须是正文的"延伸"和"展开"：正文只抛出了一个钩子/引子，聊天记录要围绕同一个话题，把正文没讲透的细节、外国朋友的真实反应、双方的真实对话都展开出来。用户应该看完正文后，通过聊天记录获得更完整的画面。
 10. 聊天内容要和正文主题强相关，不能跑偏；要让人感觉"看完正文就想看这段聊天"。
+11. 如果提供了聊天场景/起因，谁先发起、第一句话怎么切入、双方关系必须与该场景一致；场景只用来交代背景，不要在对话里原样复述场景描述。
 
 请严格输出 JSON：{"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}]}`,
     { temperature: 0.65, useChatModel: true },
@@ -1058,6 +1061,7 @@ export async function regenerateChatRow(params: {
   title: string;
   post: string;
   angle?: string;
+  scene?: string;
   currentChat: ChatRow[];
   rowIndex: number;
   instruction?: string;
@@ -1070,6 +1074,7 @@ export async function regenerateChatRow(params: {
 平台：${params.platform}
 目标外语：${LANGUAGE_MAP[params.country]}
 角度：${params.angle || '未提供'}
+聊天场景 / 起因（为什么会有这段聊天）：${params.scene?.trim() || '未提供，请根据正文自然引出对话'}。
 用户对本行/聊天的修改建议：
 ${params.instruction?.trim() || '未提供，请根据上下文优化这一行。'}
 
@@ -1091,6 +1096,7 @@ ${JSON.stringify(currentRow || {}, null, 2)}
 3. 如果用户修改建议提到方向，以建议为主；若未提供建议，则根据正文和上下文重写得更自然。
 4. 中国用户：chinese 写中文，foreign 写目标外语翻译；外国用户：foreign 写目标外语，chinese 写中文翻译。
 5. 不新增具体数字、政策、法规；不确定内容用模糊说法。
+6. 如果提供了聊天场景/起因，这一行要符合该场景下的人物关系和语境，但不要在句子里复述场景本身。
 
 请严格输出 JSON：{"row":{"target":"中国用户或外国用户","chinese":"...","foreign":"..."}}`,
     { temperature: 0.68, useChatModel: true },
