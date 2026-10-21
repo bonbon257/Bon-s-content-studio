@@ -1,14 +1,30 @@
-import { Sparkles, Plus, X, Trash2, Copy, Check, Wand2, ChevronDown, ChevronUp, Save, BookMarked, Upload, RotateCcw } from 'lucide-react';
+import {
+  Sparkles,
+  Plus,
+  X,
+  Trash2,
+  Copy,
+  Check,
+  Wand2,
+  ChevronDown,
+  ChevronUp,
+  Save,
+  BookMarked,
+  Upload,
+  RotateCcw,
+  MessageCircle,
+  FileText,
+} from 'lucide-react';
 import { useState } from 'react';
-import type { StyleSkill, GuideSkill, GuideStage } from '../types';
-import type { ExtractedStyleSkill } from '../llm';
-import { extractStyleFromSamples } from '../llm';
+import type { StyleSkill, ChatStyleSkill, GuideSkill, GuideStage } from '../types';
+import type { ExtractedStyleSkill, ExtractedChatStyleSkill } from '../llm';
+import { extractStyleFromSamples, extractChatStyleFromSamples } from '../llm';
 import type { LlmConfig } from '../types';
 import { GUIDE_STAGE_LABELS } from '../data/guideSkills';
 
+type SkillTab = 'post' | 'chat' | 'guide';
 type ViewMode = 'list' | 'create' | 'edit' | 'extract';
 type GuideViewMode = 'list' | 'import' | 'edit';
-type SkillTab = 'style' | 'guide';
 
 const ALL_STAGES: GuideStage[] = ['analyze', 'generate', 'title', 'revise', 'polish'];
 
@@ -16,6 +32,8 @@ export function StyleSkillDrawer({
   open,
   skills,
   activeSkillId,
+  chatSkills,
+  activeChatSkillId,
   config,
   onClose,
   onActivate,
@@ -24,6 +42,12 @@ export function StyleSkillDrawer({
   onDelete,
   onDuplicate,
   onDeactivate,
+  onChatActivate,
+  onChatCreate,
+  onChatUpdate,
+  onChatDelete,
+  onChatDuplicate,
+  onChatDeactivate,
   guideSkills,
   onToggleGuide,
   onSetAllGuide,
@@ -35,6 +59,8 @@ export function StyleSkillDrawer({
   open: boolean;
   skills: StyleSkill[];
   activeSkillId: string | null;
+  chatSkills: ChatStyleSkill[];
+  activeChatSkillId: string | null;
   config: LlmConfig;
   onClose: () => void;
   onActivate: (id: string) => void;
@@ -43,6 +69,12 @@ export function StyleSkillDrawer({
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDeactivate: () => void;
+  onChatActivate: (id: string) => void;
+  onChatCreate: (data: Partial<ChatStyleSkill> & { name: string }) => void;
+  onChatUpdate: (id: string, data: Partial<ChatStyleSkill>) => void;
+  onChatDelete: (id: string) => void;
+  onChatDuplicate: (id: string) => void;
+  onChatDeactivate: () => void;
   guideSkills: GuideSkill[];
   onToggleGuide: (id: string) => void;
   onSetAllGuide: (enabled: boolean) => void;
@@ -51,9 +83,10 @@ export function StyleSkillDrawer({
   onDeleteGuide: (id: string) => void;
   onResetGuideBuiltIns: () => void;
 }) {
-  const [tab, setTab] = useState<SkillTab>('style');
+  const [tab, setTab] = useState<SkillTab>('post');
   const [view, setView] = useState<ViewMode>('list');
   const [editingSkill, setEditingSkill] = useState<StyleSkill | null>(null);
+  const [editingChatSkill, setEditingChatSkill] = useState<ChatStyleSkill | null>(null);
   const [extractText, setExtractText] = useState('');
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState('');
@@ -67,6 +100,7 @@ export function StyleSkillDrawer({
   function handleBack() {
     setView('list');
     setEditingSkill(null);
+    setEditingChatSkill(null);
     setExtractText('');
     setExtractError('');
   }
@@ -84,7 +118,6 @@ export function StyleSkillDrawer({
       setGuideImportError('请粘贴 SKILL.md 内容');
       return;
     }
-    // 解析可选的 frontmatter（--- name/description ---）
     const frontmatter = raw.match(/^---\n([\s\S]*?)\n---\n?/);
     let name = '';
     let description = '';
@@ -109,7 +142,7 @@ export function StyleSkillDrawer({
       .filter((s) => s.length > 20);
 
     if (samples.length < 1) {
-      setExtractError('请至少粘贴 1 篇爆文样本');
+      setExtractError(`请至少粘贴 1 篇${tab === 'post' ? '爆文' : '聊天记录'}样本`);
       return;
     }
 
@@ -117,31 +150,52 @@ export function StyleSkillDrawer({
     setExtractError('');
 
     try {
-      const result = await extractStyleFromSamples({
-        config,
-        samples,
-      });
-      setEditingSkill({
-        id: '',
-        name: result.name,
-        description: result.description,
-        styleRules: result.styleRules,
-        titlePattern: result.titlePattern,
-        openingPattern: result.openingPattern,
-        structurePattern: result.structurePattern,
-        toneStyle: result.toneStyle,
-        endingPattern: result.endingPattern,
-        requiredTags: result.requiredTags,
-        forbiddenTags: result.forbiddenTags,
-        targetLength: result.targetLength,
-        samples,
-        globalInstruction: result.globalInstruction,
-        friendPersona: result.friendPersona,
-        active: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-      setView('edit');
+      if (tab === 'post') {
+        const result = await extractStyleFromSamples({ config, samples });
+        setEditingSkill({
+          id: '',
+          name: result.name,
+          description: result.description,
+          styleRules: result.styleRules,
+          titlePattern: result.titlePattern,
+          openingPattern: result.openingPattern,
+          structurePattern: result.structurePattern,
+          toneStyle: result.toneStyle,
+          endingPattern: result.endingPattern,
+          requiredTags: result.requiredTags,
+          forbiddenTags: result.forbiddenTags,
+          targetLength: result.targetLength,
+          samples,
+          globalInstruction: result.globalInstruction,
+          friendPersona: result.friendPersona,
+          active: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        const result = await extractChatStyleFromSamples({ config, samples });
+        setEditingChatSkill({
+          id: '',
+          name: result.name,
+          description: result.description,
+          roundCount: result.roundCount,
+          chinesePersona: result.chinesePersona,
+          foreignPersona: result.foreignPersona,
+          pace: result.pace,
+          openingStyle: result.openingStyle,
+          followUpStyle: result.followUpStyle,
+          toneStyle: result.toneStyle,
+          languageLevel: result.languageLevel,
+          chatRules: result.chatRules,
+          commonPhrases: result.commonPhrases,
+          samples,
+          globalInstruction: result.globalInstruction,
+          active: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      setView('create');
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : '提炼失败');
     } finally {
@@ -150,47 +204,98 @@ export function StyleSkillDrawer({
   }
 
   function handleSaveNewSkill() {
-    if (!editingSkill) return;
-    onCreate({
-      name: editingSkill.name,
-      description: editingSkill.description,
-      styleRules: editingSkill.styleRules,
-      titlePattern: editingSkill.titlePattern,
-      openingPattern: editingSkill.openingPattern,
-      structurePattern: editingSkill.structurePattern,
-      toneStyle: editingSkill.toneStyle,
-      endingPattern: editingSkill.endingPattern,
-      requiredTags: editingSkill.requiredTags,
-      forbiddenTags: editingSkill.forbiddenTags,
-      targetLength: editingSkill.targetLength,
-      samples: editingSkill.samples,
-      globalInstruction: editingSkill.globalInstruction,
-      friendPersona: editingSkill.friendPersona,
-    });
+    if (tab === 'post' && editingSkill) {
+      onCreate({
+        name: editingSkill.name,
+        description: editingSkill.description,
+        styleRules: editingSkill.styleRules,
+        titlePattern: editingSkill.titlePattern,
+        openingPattern: editingSkill.openingPattern,
+        structurePattern: editingSkill.structurePattern,
+        toneStyle: editingSkill.toneStyle,
+        endingPattern: editingSkill.endingPattern,
+        requiredTags: editingSkill.requiredTags,
+        forbiddenTags: editingSkill.forbiddenTags,
+        targetLength: editingSkill.targetLength,
+        samples: editingSkill.samples,
+        globalInstruction: editingSkill.globalInstruction,
+        friendPersona: editingSkill.friendPersona,
+      });
+    } else if (tab === 'chat' && editingChatSkill) {
+      onChatCreate({
+        name: editingChatSkill.name,
+        description: editingChatSkill.description,
+        roundCount: editingChatSkill.roundCount,
+        chinesePersona: editingChatSkill.chinesePersona,
+        foreignPersona: editingChatSkill.foreignPersona,
+        pace: editingChatSkill.pace,
+        openingStyle: editingChatSkill.openingStyle,
+        followUpStyle: editingChatSkill.followUpStyle,
+        toneStyle: editingChatSkill.toneStyle,
+        languageLevel: editingChatSkill.languageLevel,
+        chatRules: editingChatSkill.chatRules,
+        commonPhrases: editingChatSkill.commonPhrases,
+        samples: editingChatSkill.samples,
+        globalInstruction: editingChatSkill.globalInstruction,
+      });
+    }
     handleBack();
   }
 
   function handleUpdateSkill() {
-    if (!editingSkill) return;
-    onUpdate(editingSkill.id, {
-      name: editingSkill.name,
-      description: editingSkill.description,
-      styleRules: editingSkill.styleRules,
-      titlePattern: editingSkill.titlePattern,
-      openingPattern: editingSkill.openingPattern,
-      structurePattern: editingSkill.structurePattern,
-      toneStyle: editingSkill.toneStyle,
-      endingPattern: editingSkill.endingPattern,
-      requiredTags: editingSkill.requiredTags,
-      forbiddenTags: editingSkill.forbiddenTags,
-      targetLength: editingSkill.targetLength,
-      samples: editingSkill.samples,
-      globalInstruction: editingSkill.globalInstruction,
-      friendPersona: editingSkill.friendPersona,
-    });
-    onActivate(editingSkill.id);
+    if (tab === 'post' && editingSkill) {
+      onUpdate(editingSkill.id, {
+        name: editingSkill.name,
+        description: editingSkill.description,
+        styleRules: editingSkill.styleRules,
+        titlePattern: editingSkill.titlePattern,
+        openingPattern: editingSkill.openingPattern,
+        structurePattern: editingSkill.structurePattern,
+        toneStyle: editingSkill.toneStyle,
+        endingPattern: editingSkill.endingPattern,
+        requiredTags: editingSkill.requiredTags,
+        forbiddenTags: editingSkill.forbiddenTags,
+        targetLength: editingSkill.targetLength,
+        samples: editingSkill.samples,
+        globalInstruction: editingSkill.globalInstruction,
+        friendPersona: editingSkill.friendPersona,
+      });
+    } else if (tab === 'chat' && editingChatSkill) {
+      onChatUpdate(editingChatSkill.id, {
+        name: editingChatSkill.name,
+        description: editingChatSkill.description,
+        roundCount: editingChatSkill.roundCount,
+        chinesePersona: editingChatSkill.chinesePersona,
+        foreignPersona: editingChatSkill.foreignPersona,
+        pace: editingChatSkill.pace,
+        openingStyle: editingChatSkill.openingStyle,
+        followUpStyle: editingChatSkill.followUpStyle,
+        toneStyle: editingChatSkill.toneStyle,
+        languageLevel: editingChatSkill.languageLevel,
+        chatRules: editingChatSkill.chatRules,
+        commonPhrases: editingChatSkill.commonPhrases,
+        samples: editingChatSkill.samples,
+        globalInstruction: editingChatSkill.globalInstruction,
+      });
+    }
     handleBack();
   }
+
+  const tabIcon = tab === 'guide' ? <BookMarked className="h-5 w-5 text-[#FF9F43]" /> : <Sparkles className="h-5 w-5 text-[#FF9F43]" />;
+  const tabTitle =
+    tab === 'guide'
+      ? guideView === 'list'
+        ? '通用爆文方法论'
+        : guideView === 'import'
+          ? '导入方法论'
+          : '编辑方法论'
+      : view === 'list'
+        ? '风格 SKILL'
+        : view === 'create'
+          ? `创建${tab === 'post' ? '正文' : '聊天'}SKILL`
+          : view === 'edit'
+            ? `编辑${tab === 'post' ? '正文' : '聊天'}SKILL`
+            : `从${tab === 'post' ? '爆文' : '聊天记录'}提炼`;
 
   return (
     <div className="fixed inset-0 z-50">
@@ -200,108 +305,148 @@ export function StyleSkillDrawer({
         style={{ animation: 'slideInRight 0.2s ease' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pb-3 pt-6">
-          <div className="flex items-center gap-2">
-            {tab === 'guide' ? (
-              <BookMarked className="h-5 w-5 text-[#FF9F43]" />
-            ) : (
-              <Sparkles className="h-5 w-5 text-[#FF9F43]" />
-            )}
-            <h2 className="text-lg font-bold text-[#1A1A1A]">
-              {tab === 'guide'
-                ? guideView === 'list'
-                  ? '通用爆文方法论'
-                  : guideView === 'import'
-                    ? '导入方法论'
-                    : '编辑方法论'
-                : (
-                  <>
-                    {view === 'list' && '风格 SKILL'}
-                    {view === 'create' && '创建 SKILL'}
-                    {view === 'edit' && '编辑 SKILL'}
-                    {view === 'extract' && '从爆文提炼'}
-                  </>
-                )}
-            </h2>
+        <div className="border-b border-[#E8E4DE] px-6 pb-4 pt-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {tabIcon}
+              <h2 className="text-lg font-bold text-[#1A1A1A]">{tabTitle}</h2>
+            </div>
+            <button type="button" onClick={onClose} className="mac-icon-btn">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button type="button" onClick={onClose} className="mac-icon-btn">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
 
-        {/* Tab 切换 */}
-        <div className="flex gap-1 border-b border-[#E8E4DE] px-6">
-          <button
-            type="button"
-            onClick={() => {
-              setTab('style');
-              handleBack();
-            }}
-            className={`rounded-t-lg px-4 py-2 text-sm font-semibold transition ${
-              tab === 'style' ? 'bg-[#FFF7ED] text-[#FF9F43]' : 'text-[#6B6B6B] hover:text-[#1A1A1A]'
-            }`}
-          >
-            我的风格 SKILL
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTab('guide');
-              handleGuideBack();
-            }}
-            className={`rounded-t-lg px-4 py-2 text-sm font-semibold transition ${
-              tab === 'guide' ? 'bg-[#FFF7ED] text-[#FF9F43]' : 'text-[#6B6B6B] hover:text-[#1A1A1A]'
-            }`}
-          >
-            通用方法论（{guideSkills.filter((s) => s.enabled).length}/{guideSkills.length}）
-          </button>
+          {/* Tab 切换 */}
+          {(view === 'list' || tab === 'guide') && (
+            <div className="mt-4 flex gap-1 rounded-xl bg-[#F5F0E8] p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('post');
+                  handleBack();
+                }}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition ${
+                  tab === 'post' ? 'bg-white text-[#1A1A1A] shadow-sm' : 'text-[#6B6B6B] hover:text-[#1A1A1A]'
+                }`}
+              >
+                <FileText className="h-4 w-4" />
+                正文风格
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('chat');
+                  handleBack();
+                }}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition ${
+                  tab === 'chat' ? 'bg-white text-[#1A1A1A] shadow-sm' : 'text-[#6B6B6B] hover:text-[#1A1A1A]'
+                }`}
+              >
+                <MessageCircle className="h-4 w-4" />
+                聊天风格
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('guide');
+                  handleGuideBack();
+                }}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition ${
+                  tab === 'guide' ? 'bg-white text-[#1A1A1A] shadow-sm' : 'text-[#6B6B6B] hover:text-[#1A1A1A]'
+                }`}
+              >
+                <BookMarked className="h-4 w-4" />
+                方法论
+                <span className="rounded-full bg-[#FF9F43]/20 px-1.5 text-[10px] font-semibold text-[#FF9F43]">
+                  {guideSkills.filter((s) => s.enabled).length}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {tab === 'style' && (
-            <>
-          {view === 'list' && (
+          {tab === 'post' && view === 'list' && (
             <SkillListView
-              skills={skills}
+              skills={skills.map((s) => ({
+                id: s.id,
+                name: s.name,
+                description: s.description,
+                sampleCount: s.samples.length,
+                metaText: s.targetLength ? `${s.targetLength}字` : '',
+                tagCount: s.requiredTags.length,
+              }))}
               activeSkillId={activeSkillId}
               onActivate={onActivate}
               onDeactivate={onDeactivate}
-              onEdit={(skill) => {
-                setEditingSkill(skill);
-                setView('edit');
+              onEdit={(skill: any) => {
+                const full = skills.find((s) => s.id === skill.id);
+                if (full) {
+                  setEditingSkill(full);
+                  setView('edit');
+                }
               }}
               onDelete={onDelete}
               onDuplicate={onDuplicate}
               onCreateManual={() => {
                 setEditingSkill({
-                  id: '',
-                  name: '',
-                  description: '',
-                  styleRules: '',
-                  titlePattern: '',
-                  openingPattern: '',
-                  structurePattern: '',
-                  toneStyle: '',
-                  endingPattern: '',
-                  requiredTags: [],
-                  forbiddenTags: [],
-                  targetLength: 150,
-                  samples: [],
-                  globalInstruction: '',
-                  friendPersona: '',
-                  active: false,
-                  createdAt: '',
-                  updatedAt: '',
+                  id: '', name: '', description: '', styleRules: '',
+                  titlePattern: '', openingPattern: '', structurePattern: '',
+                  toneStyle: '', endingPattern: '', requiredTags: [],
+                  forbiddenTags: [], targetLength: 150, samples: [],
+                  globalInstruction: '', friendPersona: '', active: false,
+                  createdAt: '', updatedAt: '',
                 });
                 setView('create');
               }}
               onExtract={() => setView('extract')}
+              typeLabel="正文"
+              activeName={skills.find((s) => s.id === activeSkillId)?.name}
             />
           )}
 
-          {(view === 'create' || view === 'edit') && editingSkill && (
-            <SkillEditor
+          {tab === 'chat' && view === 'list' && (
+            <SkillListView
+              skills={chatSkills.map((s) => ({
+                id: s.id,
+                name: s.name,
+                description: s.description,
+                sampleCount: s.samples.length,
+                metaText: `${s.roundCount}轮对话`,
+                tagCount: 0,
+              }))}
+              activeSkillId={activeChatSkillId}
+              onActivate={onChatActivate}
+              onDeactivate={onChatDeactivate}
+              onEdit={(skill: any) => {
+                const full = chatSkills.find((s) => s.id === skill.id);
+                if (full) {
+                  setEditingChatSkill(full);
+                  setView('edit');
+                }
+              }}
+              onDelete={onChatDelete}
+              onDuplicate={onChatDuplicate}
+              onCreateManual={() => {
+                setEditingChatSkill({
+                  id: '', name: '', description: '', roundCount: 10,
+                  chinesePersona: '', foreignPersona: '', pace: '',
+                  openingStyle: '', followUpStyle: '', toneStyle: '',
+                  languageLevel: '', chatRules: '', commonPhrases: '',
+                  samples: [], globalInstruction: '', active: false,
+                  createdAt: '', updatedAt: '',
+                });
+                setView('create');
+              }}
+              onExtract={() => setView('extract')}
+              typeLabel="聊天"
+              activeName={chatSkills.find((s) => s.id === activeChatSkillId)?.name}
+            />
+          )}
+
+          {tab === 'post' && (view === 'create' || view === 'edit') && editingSkill && (
+            <PostSkillEditor
               skill={editingSkill}
               isNew={view === 'create'}
               onChange={(updates) =>
@@ -312,7 +457,19 @@ export function StyleSkillDrawer({
             />
           )}
 
-          {view === 'extract' && (
+          {tab === 'chat' && (view === 'create' || view === 'edit') && editingChatSkill && (
+            <ChatSkillEditor
+              skill={editingChatSkill}
+              isNew={view === 'create'}
+              onChange={(updates) =>
+                setEditingChatSkill((prev) => (prev ? { ...prev, ...updates } : prev))
+              }
+              onSave={view === 'create' ? handleSaveNewSkill : handleUpdateSkill}
+              onCancel={handleBack}
+            />
+          )}
+
+          {(tab === 'post' || tab === 'chat') && view === 'extract' && (
             <ExtractView
               extractText={extractText}
               setExtractText={setExtractText}
@@ -320,9 +477,8 @@ export function StyleSkillDrawer({
               error={extractError}
               onExtract={handleExtract}
               onCancel={handleBack}
+              type={tab === 'post' ? 'post' : 'chat'}
             />
-          )}
-            </>
           )}
 
           {tab === 'guide' && guideView === 'list' && (
@@ -374,7 +530,7 @@ export function StyleSkillDrawer({
   );
 }
 
-// ==================== SKILL 列表 ====================
+// ==================== SKILL 列表（通用） ====================
 
 function SkillListView({
   skills,
@@ -386,20 +542,23 @@ function SkillListView({
   onDuplicate,
   onCreateManual,
   onExtract,
+  typeLabel,
+  activeName,
 }: {
-  skills: StyleSkill[];
+  skills: Array<{ id: string; name: string; description: string; sampleCount: number; metaText: string; tagCount?: number }>;
   activeSkillId: string | null;
   onActivate: (id: string) => void;
   onDeactivate: () => void;
-  onEdit: (skill: StyleSkill) => void;
+  onEdit: (skill: any) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onCreateManual: () => void;
   onExtract: () => void;
+  typeLabel: string;
+  activeName?: string;
 }) {
   return (
     <div className="space-y-4">
-      {/* 创建按钮区 */}
       <div className="grid grid-cols-2 gap-3">
         <button
           type="button"
@@ -407,7 +566,7 @@ function SkillListView({
           className="flex flex-col items-center gap-1 rounded-2xl border-2 border-dashed border-[#FF9F43]/40 bg-[#FF9F43]/5 p-4 text-sm font-semibold text-[#FF9F43] transition hover:bg-[#FF9F43]/10"
         >
           <Wand2 className="h-5 w-5" />
-          从爆文提炼
+          从{typeLabel === '正文' ? '爆文' : '聊天记录'}提炼
         </button>
         <button
           type="button"
@@ -419,7 +578,6 @@ function SkillListView({
         </button>
       </div>
 
-      {/* 当前激活状态 */}
       {activeSkillId && (
         <div className="rounded-2xl border border-[#FF9F43]/30 bg-[#FFF7ED] p-4">
           <div className="mb-2 flex items-center justify-between">
@@ -427,28 +585,21 @@ function SkillListView({
               <Sparkles className="h-4 w-4 text-[#FF9F43]" />
               <span className="text-sm font-bold text-[#1A1A1A]">当前激活</span>
             </div>
-            <button
-              type="button"
-              onClick={onDeactivate}
-              className="text-xs text-[#FF9F43] hover:underline"
-            >
+            <button type="button" onClick={onDeactivate} className="text-xs text-[#FF9F43] hover:underline">
               停用
             </button>
           </div>
-          <p className="text-sm text-[#6B6B6B]">
-            {skills.find((s) => s.id === activeSkillId)?.name || '未知'}
-          </p>
+          <p className="text-sm text-[#6B6B6B]">{activeName || '未知'}</p>
         </div>
       )}
 
-      {/* SKILL 列表 */}
       <div className="space-y-3">
-        <h3 className="text-sm font-bold text-[#1A1A1A]">我的 SKILL（{skills.length}）</h3>
+        <h3 className="text-sm font-bold text-[#1A1A1A]">我的{typeLabel}SKILL（{skills.length}）</h3>
         {skills.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[#E8E4DE] bg-white/50 py-8 text-center">
-            <p className="text-sm text-[#6B6B6B]">还没有风格 SKILL</p>
+            <p className="text-sm text-[#6B6B6B]">还没有{typeLabel}风格 SKILL</p>
             <p className="mt-1 text-xs text-[#B8B5CC]">
-              从爆文提炼或手动创建，生成的内容会严格遵循你的风格
+              从{typeLabel === '正文' ? '爆文' : '聊天记录'}提炼或手动创建，生成的内容会严格遵循你的风格
             </p>
           </div>
         ) : (
@@ -477,7 +628,7 @@ function SkillCard({
   onDelete,
   onDuplicate,
 }: {
-  skill: StyleSkill;
+  skill: { id: string; name: string; description: string; sampleCount: number; metaText: string; tagCount?: number };
   isActive: boolean;
   onActivate: () => void;
   onEdit: () => void;
@@ -489,9 +640,7 @@ function SkillCard({
   return (
     <div
       className={`rounded-2xl border p-4 transition ${
-        isActive
-          ? 'border-[#FF9F43]/40 bg-[#FFF7ED]'
-          : 'border-[#E8E4DE] bg-white hover:border-[#FF9F43]/30'
+        isActive ? 'border-[#FF9F43]/40 bg-[#FFF7ED]' : 'border-[#E8E4DE] bg-white hover:border-[#FF9F43]/30'
       }`}
     >
       <div className="flex items-start justify-between">
@@ -508,19 +657,19 @@ function SkillCard({
             <p className="mt-1 text-xs text-[#6B6B6B]">{skill.description}</p>
           )}
           <div className="mt-2 flex flex-wrap gap-1">
-            {skill.targetLength && (
+            {skill.metaText && (
               <span className="rounded-full bg-[#F5F0E8] px-2 py-0.5 text-[10px] text-[#6B6B6B]">
-                {skill.targetLength}字
+                {skill.metaText}
               </span>
             )}
-            {skill.requiredTags.length > 0 && (
+            {skill.tagCount !== undefined && skill.tagCount > 0 && (
               <span className="rounded-full bg-[#C9EBCA]/50 px-2 py-0.5 text-[10px] text-[#2D7A3A]">
-                {skill.requiredTags.length}个必带标签
+                {skill.tagCount}个必带标签
               </span>
             )}
-            {skill.samples.length > 0 && (
+            {skill.sampleCount > 0 && (
               <span className="rounded-full bg-[#FFE4C4]/50 px-2 py-0.5 text-[10px] text-[#B86B00]">
-                {skill.samples.length}篇样本
+                {skill.sampleCount}篇样本
               </span>
             )}
           </div>
@@ -539,86 +688,14 @@ function SkillCard({
         </button>
       </div>
 
-      {/* 展开详情 */}
-      <div className="mt-3 border-t border-[#E8E4DE]/50 pt-3">
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="flex w-full items-center justify-between text-xs text-[#6B6B6B] hover:text-[#1A1A1A]"
-        >
-          <span>{expanded ? '收起详情' : '查看详情'}</span>
-          {expanded ? (
-            <ChevronUp className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5" />
-          )}
-        </button>
-
-        {expanded && (
-          <div className="mt-3 space-y-2 text-xs">
-            {skill.titlePattern && (
-              <div>
-                <span className="font-semibold text-[#1A1A1A]">标题：</span>
-                <span className="text-[#6B6B6B]">{skill.titlePattern}</span>
-              </div>
-            )}
-            {skill.toneStyle && (
-              <div>
-                <span className="font-semibold text-[#1A1A1A]">语气：</span>
-                <span className="text-[#6B6B6B]">{skill.toneStyle}</span>
-              </div>
-            )}
-            {skill.structurePattern && (
-              <div>
-                <span className="font-semibold text-[#1A1A1A]">结构：</span>
-                <span className="text-[#6B6B6B]">{skill.structurePattern}</span>
-              </div>
-            )}
-            {skill.styleRules && (
-              <div>
-                <span className="font-semibold text-[#1A1A1A]">核心规则：</span>
-                <p className="mt-1 whitespace-pre-wrap text-[#6B6B6B]">{skill.styleRules}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 操作按钮 */}
       <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={onActivate}
-          disabled={isActive}
-          className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition ${
-            isActive
-              ? 'cursor-default bg-[#FF9F43]/15 text-[#FF9F43]'
-              : 'bg-[#FF9F43] text-white hover:bg-[#FF9F43]/90'
-          }`}
-        >
-          {isActive ? '使用中' : '应用'}
-        </button>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded-lg bg-[#F5F0E8] px-3 py-1.5 text-xs font-medium text-[#6B6B6B] transition hover:bg-[#EDE6D8]"
-        >
+        <button type="button" onClick={onEdit} className="flex-1 rounded-lg bg-[#F5F0E8] py-1.5 text-xs font-medium text-[#6B6B6B] transition hover:bg-[#EDE6D8]">
           编辑
         </button>
-        <button
-          type="button"
-          onClick={onDuplicate}
-          className="rounded-lg bg-[#F5F0E8] p-1.5 text-[#6B6B6B] transition hover:bg-[#EDE6D8]"
-          title="复制"
-        >
+        <button type="button" onClick={onDuplicate} className="rounded-lg bg-[#F5F0E8] p-1.5 text-[#6B6B6B] transition hover:bg-[#EDE6D8]" title="复制">
           <Copy className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="rounded-lg bg-red-50 p-1.5 text-red-400 transition hover:bg-red-100"
-          title="删除"
-        >
+        <button type="button" onClick={onDelete} className="rounded-lg bg-red-50 p-1.5 text-red-400 transition hover:bg-red-100" title="删除">
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -626,9 +703,9 @@ function SkillCard({
   );
 }
 
-// ==================== SKILL 编辑器 ====================
+// ==================== 正文风格 SKILL 编辑器 ====================
 
-function SkillEditor({
+function PostSkillEditor({
   skill,
   isNew,
   onChange,
@@ -661,9 +738,7 @@ function SkillEditor({
   function removeTag(type: 'required' | 'forbidden', index: number) {
     const current = type === 'required' ? skill.requiredTags : skill.forbiddenTags;
     onChange({
-      [type === 'required' ? 'requiredTags' : 'forbiddenTags']: current.filter(
-        (_, i) => i !== index,
-      ),
+      [type === 'required' ? 'requiredTags' : 'forbiddenTags']: current.filter((_, i) => i !== index),
     });
   }
 
@@ -673,140 +748,67 @@ function SkillEditor({
     <div className="space-y-5">
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">SKILL 名称</label>
-        <input
-          value={skill.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="例如：反常识提问风"
-          className="mac-input"
-        />
+        <input value={skill.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="例如：反常识提问风" className="mac-input" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">一句话描述</label>
-        <input
-          value={skill.description}
-          onChange={(e) => onChange({ description: e.target.value })}
-          placeholder="这个风格的核心特征"
-          className="mac-input"
-        />
+        <input value={skill.description} onChange={(e) => onChange({ description: e.target.value })} placeholder="这个风格的核心特征" className="mac-input" />
       </section>
 
       <section>
-        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">
-          目标字数：{skill.targetLength} 字
-        </label>
-        <input
-          type="range"
-          min={80}
-          max={300}
-          step={10}
-          value={skill.targetLength}
-          onChange={(e) => onChange({ targetLength: Number(e.target.value) })}
-          className="w-full"
-        />
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">目标字数：{skill.targetLength} 字</label>
+        <input type="range" min={80} max={300} step={10} value={skill.targetLength} onChange={(e) => onChange({ targetLength: Number(e.target.value) })} className="w-full" />
         <div className="mt-1 flex justify-between text-xs text-[#6B6B6B]">
-          <span>80字</span>
-          <span>150字</span>
-          <span>300字</span>
+          <span>80字</span><span>150字</span><span>300字</span>
         </div>
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">标题模式</label>
-        <textarea
-          value={skill.titlePattern}
-          onChange={(e) => onChange({ titlePattern: e.target.value })}
-          rows={2}
-          placeholder="例如：用'为什么...？'句式，长度 15-20 字，抛出反常识疑问"
-          className="mac-textarea !min-h-[60px]"
-        />
+        <textarea value={skill.titlePattern} onChange={(e) => onChange({ titlePattern: e.target.value })} rows={2} placeholder="例如：用'为什么...？'句式，长度 15-20 字，抛出反常识疑问" className="mac-textarea !min-h-[60px]" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">开头模式</label>
-        <textarea
-          value={skill.openingPattern}
-          onChange={(e) => onChange({ openingPattern: e.target.value })}
-          rows={2}
-          placeholder="例如：先描述一个普遍现象，然后用反问句引出话题"
-          className="mac-textarea !min-h-[60px]"
-        />
+        <textarea value={skill.openingPattern} onChange={(e) => onChange({ openingPattern: e.target.value })} rows={2} placeholder="例如：先描述一个普遍现象，然后用反问句引出话题" className="mac-textarea !min-h-[60px]" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">正文结构</label>
-        <textarea
-          value={skill.structurePattern}
-          onChange={(e) => onChange({ structurePattern: e.target.value })}
-          rows={2}
-          placeholder="例如：三段式 —— 第一段抛出现象/疑问，第二段引入外国朋友的观点，第三段总结提问"
-          className="mac-textarea !min-h-[60px]"
-        />
+        <textarea value={skill.structurePattern} onChange={(e) => onChange({ structurePattern: e.target.value })} rows={2} placeholder="例如：三段式 —— 第一段抛出现象/疑问，第二段引入外国朋友的观点，第三段总结提问" className="mac-textarea !min-h-[60px]" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">语气风格</label>
-        <textarea
-          value={skill.toneStyle}
-          onChange={(e) => onChange({ toneStyle: e.target.value })}
-          rows={2}
-          placeholder="例如：口语化、像跟朋友聊天、带点吐槽感、句子短、少用成语"
-          className="mac-textarea !min-h-[60px]"
-        />
+        <textarea value={skill.toneStyle} onChange={(e) => onChange({ toneStyle: e.target.value })} rows={2} placeholder="例如：口语化、像跟朋友聊天、带点吐槽感、句子短、少用成语" className="mac-textarea !min-h-[60px]" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">结尾模式</label>
-        <textarea
-          value={skill.endingPattern}
-          onChange={(e) => onChange({ endingPattern: e.target.value })}
-          rows={2}
-          placeholder="例如：以开放式问题结尾，引导评论区讨论"
-          className="mac-textarea !min-h-[60px]"
-        />
+        <textarea value={skill.endingPattern} onChange={(e) => onChange({ endingPattern: e.target.value })} rows={2} placeholder="例如：以开放式问题结尾，引导评论区讨论" className="mac-textarea !min-h-[60px]" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">核心风格规则</label>
-        <textarea
-          value={skill.styleRules}
-          onChange={(e) => onChange({ styleRules: e.target.value })}
-          rows={3}
-          placeholder="3-5 条最关键的写作要求，每条具体可执行。这是最高优先级规则。"
-          className="mac-textarea !min-h-[80px]"
-        />
+        <textarea value={skill.styleRules} onChange={(e) => onChange({ styleRules: e.target.value })} rows={3} placeholder="3-5 条最关键的写作要求，每条具体可执行。这是最高优先级规则。" className="mac-textarea !min-h-[80px]" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">必带标签</label>
         <div className="mb-2 flex flex-wrap gap-2">
           {skill.requiredTags.map((tag, i) => (
-            <span
-              key={`${tag}-${i}`}
-              className="inline-flex items-center gap-1 rounded-full bg-[#C9EBCA] px-3 py-1 text-xs font-semibold text-[#1A1A1A]"
-            >
+            <span key={`${tag}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-[#C9EBCA] px-3 py-1 text-xs font-semibold text-[#1A1A1A]">
               {tag}
-              <button
-                type="button"
-                onClick={() => removeTag('required', i)}
-                className="text-[#1A1A1A]/60 hover:text-[#1A1A1A]"
-              >
+              <button type="button" onClick={() => removeTag('required', i)} className="text-[#1A1A1A]/60 hover:text-[#1A1A1A]">
                 <X className="h-3 w-3" />
               </button>
             </span>
           ))}
         </div>
         <div className="flex gap-2">
-          <input
-            value={newReqTag}
-            onChange={(e) => setNewReqTag(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addTag('required')}
-            placeholder="输入标签，按回车添加"
-            className="mac-input flex-1"
-          />
-          <button type="button" onClick={() => addTag('required')} className="mac-mini-btn">
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <input value={newReqTag} onChange={(e) => setNewReqTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTag('required')} placeholder="输入标签，按回车添加" className="mac-input flex-1" />
+          <button type="button" onClick={() => addTag('required')} className="mac-mini-btn"><Plus className="h-3.5 w-3.5" /></button>
         </div>
       </section>
 
@@ -814,62 +816,33 @@ function SkillEditor({
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">禁用标签</label>
         <div className="mb-2 flex flex-wrap gap-2">
           {skill.forbiddenTags.map((tag, i) => (
-            <span
-              key={`${tag}-${i}`}
-              className="inline-flex items-center gap-1 rounded-full bg-[#F5D5D5] px-3 py-1 text-xs font-semibold text-[#1A1A1A]"
-            >
+            <span key={`${tag}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-[#F5D5D5] px-3 py-1 text-xs font-semibold text-[#1A1A1A]">
               {tag}
-              <button
-                type="button"
-                onClick={() => removeTag('forbidden', i)}
-                className="text-[#1A1A1A]/60 hover:text-[#1A1A1A]"
-              >
+              <button type="button" onClick={() => removeTag('forbidden', i)} className="text-[#1A1A1A]/60 hover:text-[#1A1A1A]">
                 <X className="h-3 w-3" />
               </button>
             </span>
           ))}
         </div>
         <div className="flex gap-2">
-          <input
-            value={newForbTag}
-            onChange={(e) => setNewForbTag(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addTag('forbidden')}
-            placeholder="输入标签，按回车添加"
-            className="mac-input flex-1"
-          />
-          <button type="button" onClick={() => addTag('forbidden')} className="mac-mini-btn">
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <input value={newForbTag} onChange={(e) => setNewForbTag(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addTag('forbidden')} placeholder="输入标签，按回车添加" className="mac-input flex-1" />
+          <button type="button" onClick={() => addTag('forbidden')} className="mac-mini-btn"><Plus className="h-3.5 w-3.5" /></button>
         </div>
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">外国朋友人设</label>
-        <textarea
-          value={skill.friendPersona}
-          onChange={(e) => onChange({ friendPersona: e.target.value })}
-          rows={2}
-          placeholder="例如：美国女生，性格开朗，喜欢吐槽，说话直接"
-          className="mac-textarea !min-h-[60px]"
-        />
+        <textarea value={skill.friendPersona} onChange={(e) => onChange({ friendPersona: e.target.value })} rows={2} placeholder="例如：美国女生，性格开朗，喜欢吐槽，说话直接" className="mac-textarea !min-h-[60px]" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">全局附加指令</label>
-        <textarea
-          value={skill.globalInstruction}
-          onChange={(e) => onChange({ globalInstruction: e.target.value })}
-          rows={3}
-          placeholder="任何时候都要遵守的铁律。例如：不要用问句结尾；不要出现「说实话」「其实」"
-          className="mac-textarea !min-h-[80px]"
-        />
+        <textarea value={skill.globalInstruction} onChange={(e) => onChange({ globalInstruction: e.target.value })} rows={3} placeholder="任何时候都要遵守的铁律。例如：不要用问句结尾；不要出现「说实话」「其实」" className="mac-textarea !min-h-[80px]" />
       </section>
 
       {skill.samples.length > 0 && (
         <section>
-          <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">
-            参考样本（{skill.samples.length}篇）
-          </label>
+          <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">参考样本（{skill.samples.length}篇）</label>
           <div className="space-y-2">
             {skill.samples.map((s, i) => (
               <div key={i} className="rounded-xl bg-white p-3 text-xs text-[#6B6B6B]">
@@ -881,25 +854,132 @@ function SkillEditor({
         </section>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <button type="button" onClick={onCancel} className="mac-secondary-btn">
-          取消
-        </button>
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={!canSave}
-          className="mac-primary-btn disabled:opacity-50"
-        >
-          <Save className="h-4 w-4" />
-          {isNew ? '创建 SKILL' : '保存并应用'}
-        </button>
+      <div className="sticky bottom-0 -mx-6 -mb-5 mt-6 border-t border-[#E8E4DE] bg-[#FAF7F2] px-6 py-4">
+        <div className="grid grid-cols-2 gap-3">
+          <button type="button" onClick={onCancel} className="mac-secondary-btn">取消</button>
+          <button type="button" onClick={onSave} disabled={!canSave} className="mac-primary-btn disabled:opacity-50">
+            {isNew ? '保存并应用' : '保存修改'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ==================== 从爆文提炼 ====================
+// ==================== 聊天风格 SKILL 编辑器 ====================
+
+function ChatSkillEditor({
+  skill,
+  isNew,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  skill: ChatStyleSkill;
+  isNew: boolean;
+  onChange: (updates: Partial<ChatStyleSkill>) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const canSave = skill.name.trim().length > 0;
+
+  return (
+    <div className="space-y-5">
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">SKILL 名称</label>
+        <input value={skill.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="例如：轻松吐槽风聊天" className="mac-input" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">一句话描述</label>
+        <input value={skill.description} onChange={(e) => onChange({ description: e.target.value })} placeholder="这个聊天风格的核心特征" className="mac-input" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">对话轮数：约 {skill.roundCount} 轮</label>
+        <input type="range" min={6} max={15} step={1} value={skill.roundCount} onChange={(e) => onChange({ roundCount: Number(e.target.value) })} className="w-full" />
+        <div className="mt-1 flex justify-between text-xs text-[#6B6B6B]">
+          <span>6轮</span><span>10轮</span><span>15轮</span>
+        </div>
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">中国用户人设</label>
+        <textarea value={skill.chinesePersona} onChange={(e) => onChange({ chinesePersona: e.target.value })} rows={2} placeholder="例如：好奇心强，喜欢追问，说话直接带点吐槽感，偶尔用语气词" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">外国用户人设</label>
+        <textarea value={skill.foreignPersona} onChange={(e) => onChange({ foreignPersona: e.target.value })} rows={2} placeholder="例如：性格开朗，喜欢分享个人经历，说话幽默，偶尔吐槽自己国家" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">对话节奏</label>
+        <textarea value={skill.pace} onChange={(e) => onChange({ pace: e.target.value })} rows={2} placeholder="例如：快节奏短句，每轮不超过2句话；你来我往，不冷场" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">开场方式</label>
+        <textarea value={skill.openingStyle} onChange={(e) => onChange({ openingStyle: e.target.value })} rows={2} placeholder="例如：中国用户先用一个轻松的问题开场，外国朋友用惊讶/认同回应" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">追问模式</label>
+        <textarea value={skill.followUpStyle} onChange={(e) => onChange({ followUpStyle: e.target.value })} rows={2} placeholder="例如：围绕对方回答中的细节追问，用'真的吗？''为什么？''那你呢？'等自然追问" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">语气风格</label>
+        <textarea value={skill.toneStyle} onChange={(e) => onChange({ toneStyle: e.target.value })} rows={2} placeholder="例如：朋友闲聊感，轻松带点吐槽，不正式，像真实聊天" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">语言难度</label>
+        <textarea value={skill.languageLevel} onChange={(e) => onChange({ languageLevel: e.target.value })} rows={2} placeholder="例如：简单日常词汇为主，偶尔用一些地道表达，不要太难的词" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">核心对话规则</label>
+        <textarea value={skill.chatRules} onChange={(e) => onChange({ chatRules: e.target.value })} rows={3} placeholder="3-5 条最关键的对话规则，每条具体可执行。这是最高优先级规则。" className="mac-textarea !min-h-[80px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">常用表达/口头禅</label>
+        <textarea value={skill.commonPhrases} onChange={(e) => onChange({ commonPhrases: e.target.value })} rows={2} placeholder="例如：中国用户常用'哇''真的假的''厉害了'；外国用户常用'Oh wow''Really?''That's crazy'" className="mac-textarea !min-h-[60px]" />
+      </section>
+
+      <section>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">全局附加指令</label>
+        <textarea value={skill.globalInstruction} onChange={(e) => onChange({ globalInstruction: e.target.value })} rows={3} placeholder="任何时候都要遵守的铁律。例如：不要用长句子；不要像老师讲课；每轮对话最多 2 句话" className="mac-textarea !min-h-[80px]" />
+      </section>
+
+      {skill.samples.length > 0 && (
+        <section>
+          <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">参考样本（{skill.samples.length}段）</label>
+          <div className="space-y-2">
+            {skill.samples.map((s, i) => (
+              <div key={i} className="rounded-xl bg-white p-3 text-xs text-[#6B6B6B]">
+                <p className="mb-1 font-semibold text-[#1A1A1A]">样本 {i + 1}</p>
+                <p className="line-clamp-3 whitespace-pre-wrap">{s.slice(0, 100)}...</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="sticky bottom-0 -mx-6 -mb-5 mt-6 border-t border-[#E8E4DE] bg-[#FAF7F2] px-6 py-4">
+        <div className="grid grid-cols-2 gap-3">
+          <button type="button" onClick={onCancel} className="mac-secondary-btn">取消</button>
+          <button type="button" onClick={onSave} disabled={!canSave} className="mac-primary-btn disabled:opacity-50">
+            {isNew ? '保存并应用' : '保存修改'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==================== 从样本提炼 ====================
 
 function ExtractView({
   extractText,
@@ -908,6 +988,7 @@ function ExtractView({
   error,
   onExtract,
   onCancel,
+  type,
 }: {
   extractText: string;
   setExtractText: (v: string) => void;
@@ -915,6 +996,7 @@ function ExtractView({
   error: string;
   onExtract: () => void;
   onCancel: () => void;
+  type: 'post' | 'chat';
 }) {
   return (
     <div className="space-y-4">
@@ -924,48 +1006,36 @@ function ExtractView({
           如何使用
         </h3>
         <ol className="list-decimal space-y-1 pl-5 text-xs text-[#6B6B6B]">
-          <li>粘贴 2-5 篇你认为效果最好的爆文</li>
-          <li>每篇之间用 <code className="rounded bg-white px-1 py-0.5">---</code> 分隔</li>
+          <li>粘贴 2-5 段你认为效果最好的{type === 'post' ? '爆文' : '聊天记录'}</li>
+          <li>每段之间用 <code className="rounded bg-white px-1 py-0.5">---</code> 分隔</li>
           <li>AI 会自动分析共同风格，生成可复用的 SKILL</li>
           <li>提炼后你可以手动调整再保存</li>
         </ol>
       </div>
 
       <section>
-        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">粘贴爆文样本</label>
+        <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">粘贴{type === 'post' ? '爆文' : '聊天记录'}样本</label>
         <textarea
           value={extractText}
           onChange={(e) => setExtractText(e.target.value)}
           rows={12}
-          placeholder={`第一篇爆文标题和正文...\n\n---\n\n第二篇爆文标题和正文...\n\n---\n\n第三篇...`}
+          placeholder={type === 'post'
+            ? `第一篇爆文标题和正文...\n\n---\n\n第二篇爆文标题和正文...\n\n---\n\n第三篇...`
+            : `第一段聊天记录...\n\n---\n\n第二段聊天记录...\n\n---\n\n第三段...`
+          }
           className="mac-textarea !min-h-[240px] !font-mono !text-xs"
         />
       </section>
 
-      {error && (
-        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">{error}</div>
-      )}
+      {error && <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">{error}</div>}
 
       <div className="grid grid-cols-2 gap-3">
-        <button type="button" onClick={onCancel} className="mac-secondary-btn">
-          取消
-        </button>
-        <button
-          type="button"
-          onClick={onExtract}
-          disabled={extracting || !extractText.trim()}
-          className="mac-primary-btn disabled:opacity-50"
-        >
+        <button type="button" onClick={onCancel} className="mac-secondary-btn">取消</button>
+        <button type="button" onClick={onExtract} disabled={extracting || !extractText.trim()} className="mac-primary-btn disabled:opacity-50">
           {extracting ? (
-            <>
-              <span className="animate-spin">⏳</span>
-              提炼中...
-            </>
+            <><span className="animate-spin">⏳</span>提炼中...</>
           ) : (
-            <>
-              <Wand2 className="h-4 w-4" />
-              开始提炼
-            </>
+            <><Wand2 className="h-4 w-4" />开始提炼</>
           )}
         </button>
       </div>
@@ -1012,36 +1082,19 @@ function GuideListView({
           <Upload className="h-3.5 w-3.5" />
           导入 SKILL.md / 粘贴文本
         </button>
-        <button type="button" onClick={() => onSetAll(true)} className="mac-secondary-btn !py-2 text-xs">
-          全部启用
-        </button>
-        <button type="button" onClick={() => onSetAll(false)} className="mac-secondary-btn !py-2 text-xs">
-          全部停用
-        </button>
-        <button
-          type="button"
-          onClick={onResetBuiltIns}
-          className="mac-secondary-btn !py-2 text-xs"
-          title="用内置版本覆盖被修改过的内置方法论"
-        >
+        <button type="button" onClick={() => onSetAll(true)} className="mac-secondary-btn !py-2 text-xs">全部启用</button>
+        <button type="button" onClick={() => onSetAll(false)} className="mac-secondary-btn !py-2 text-xs">全部停用</button>
+        <button type="button" onClick={onResetBuiltIns} className="mac-secondary-btn !py-2 text-xs" title="用内置版本覆盖被修改过的内置方法论">
           <RotateCcw className="h-3.5 w-3.5" />
           恢复内置
         </button>
       </div>
 
-      <p className="text-xs text-[#6B6B6B]">
-        已启用 {enabledCount} / {guides.length} 个
-      </p>
+      <p className="text-xs text-[#6B6B6B]">已启用 {enabledCount} / {guides.length} 个</p>
 
       <div className="space-y-3">
         {guides.map((guide) => (
-          <GuideCard
-            key={guide.id}
-            guide={guide}
-            onToggle={onToggle}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
+          <GuideCard key={guide.id} guide={guide} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />
         ))}
       </div>
     </div>
@@ -1089,49 +1142,30 @@ function GuideCard({
             ))}
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onToggle(guide.id)}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-              guide.enabled ? 'bg-[#FF9F43]' : 'bg-[#D9D4CC]'
-            }`}
-            title={guide.enabled ? '点击停用' : '点击启用'}
-          >
-            <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-                guide.enabled ? 'left-[22px]' : 'left-0.5'
-              }`}
-            />
-          </button>
+        <button
+          type="button"
+          onClick={() => onToggle(guide.id)}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+            guide.enabled ? 'bg-[#FF9F43]' : 'bg-[#D9D4CC]'
+          }`}
+          title={guide.enabled ? '点击停用' : '点击启用'}
+        >
           <span
-            className={`text-[10px] font-semibold ${
-              guide.enabled ? 'text-[#FF9F43]' : 'text-[#6B6B6B]'
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+              guide.enabled ? 'left-[22px]' : 'left-0.5'
             }`}
-          >
-            {guide.enabled ? '已应用' : '未应用'}
-          </span>
-        </div>
+          />
+        </button>
       </div>
 
       <div className="mt-3 flex items-center gap-3 border-t border-[#F2F0EC] pt-2 text-xs">
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1 text-[#6B6B6B] hover:text-[#1A1A1A]"
-        >
+        <button type="button" onClick={() => setExpanded((v) => !v)} className="flex items-center gap-1 text-[#6B6B6B] hover:text-[#1A1A1A]">
           {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
           {expanded ? '收起内容' : '查看内容'}
         </button>
-        <button type="button" onClick={() => onEdit(guide)} className="text-[#6B6B6B] hover:text-[#1A1A1A]">
-          编辑
-        </button>
+        <button type="button" onClick={() => onEdit(guide)} className="text-[#6B6B6B] hover:text-[#1A1A1A]">编辑</button>
         {!guide.builtIn && (
-          <button
-            type="button"
-            onClick={() => onDelete(guide.id)}
-            className="ml-auto flex items-center gap-1 text-red-500 hover:text-red-600"
-          >
+          <button type="button" onClick={() => onDelete(guide.id)} className="ml-auto flex items-center gap-1 text-red-500 hover:text-red-600">
             <Trash2 className="h-3.5 w-3.5" />
             删除
           </button>
@@ -1191,15 +1225,8 @@ function GuideImportView({
       {error && <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">{error}</div>}
 
       <div className="grid grid-cols-2 gap-3">
-        <button type="button" onClick={onCancel} className="mac-secondary-btn">
-          取消
-        </button>
-        <button
-          type="button"
-          onClick={onImport}
-          disabled={!text.trim()}
-          className="mac-primary-btn disabled:opacity-50"
-        >
+        <button type="button" onClick={onCancel} className="mac-secondary-btn">取消</button>
+        <button type="button" onClick={onImport} disabled={!text.trim()} className="mac-primary-btn disabled:opacity-50">
           <Upload className="h-4 w-4" />
           导入
         </button>
@@ -1225,21 +1252,12 @@ function GuideEditor({
     <div className="space-y-4">
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">名称</label>
-        <input
-          value={guide.name}
-          onChange={(e) => onUpdate({ name: e.target.value })}
-          className="mac-input"
-        />
+        <input value={guide.name} onChange={(e) => onUpdate({ name: e.target.value })} className="mac-input" />
       </section>
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">说明</label>
-        <input
-          value={guide.description}
-          onChange={(e) => onUpdate({ description: e.target.value })}
-          className="mac-input"
-          placeholder="一句话说明这个方法论解决什么问题"
-        />
+        <input value={guide.description} onChange={(e) => onUpdate({ description: e.target.value })} className="mac-input" placeholder="一句话说明这个方法论解决什么问题" />
       </section>
 
       <section>
@@ -1273,24 +1291,12 @@ function GuideEditor({
 
       <section>
         <label className="mb-2 block text-sm font-bold text-[#1A1A1A]">方法论内容</label>
-        <textarea
-          value={guide.content}
-          onChange={(e) => onUpdate({ content: e.target.value })}
-          rows={14}
-          className="mac-textarea !min-h-[280px] !font-mono !text-xs"
-        />
+        <textarea value={guide.content} onChange={(e) => onUpdate({ content: e.target.value })} rows={14} className="mac-textarea !min-h-[280px] !font-mono !text-xs" />
       </section>
 
       <div className="grid grid-cols-2 gap-3">
-        <button type="button" onClick={onCancel} className="mac-secondary-btn">
-          取消
-        </button>
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={!guide.name.trim() || !guide.content.trim()}
-          className="mac-primary-btn disabled:opacity-50"
-        >
+        <button type="button" onClick={onCancel} className="mac-secondary-btn">取消</button>
+        <button type="button" onClick={onSave} disabled={!guide.name.trim() || !guide.content.trim()} className="mac-primary-btn disabled:opacity-50">
           <Save className="h-4 w-4" />
           保存
         </button>

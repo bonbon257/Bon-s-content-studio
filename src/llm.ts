@@ -2,11 +2,13 @@ import type {
   Angle,
   AppRecommendationResult,
   ChatRow,
+  ContentReviewReport,
   ContentRevisionResult,
   Country,
   FactCheckItem,
   GenerationResult,
   GeneratedContentResearchResult,
+  GuideSkill,
   LlmConfig,
   Platform,
   PolishResult,
@@ -287,8 +289,8 @@ function extractJson<T>(text: string): T {
 async function callChatJson<T>(
   config: LlmConfig,
   userPrompt: string,
-  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean; preferenceContext?: string; skillContext?: string },
-): Promise<T> {
+  options?: { systemPrompt?: string; temperature?: number; useChatModel?: boolean; preferenceContext?: string; skillContext?: string; chatSkillContext?: string },
+): Promise<T & { reasoning?: string }> {
   const useProxy = shouldUseCloudProxy();
   if (!useProxy && !config.apiKey.trim()) {
     throw new Error('缺少 LLM API Key，请在 .env.local 中配置 VITE_LLM_API_KEY。');
@@ -315,6 +317,9 @@ async function callChatJson<T>(
   prefPart = styleBlock.rest;
   const guideBlock = stripBlock(prefPart, '【通用爆文方法论 SKILL');
   prefPart = guideBlock.rest;
+
+  // 聊天风格 SKILL（聊天相关生成时由调用方传入）
+  const chatSkillPart = options?.chatSkillContext || '';
 
   // 1) 系统默认规则（最低优先级，作为基线）
   systemContent += options?.systemPrompt ?? SYSTEM_PROMPT;
@@ -343,6 +348,11 @@ async function callChatJson<T>(
       '注意：正文目标字数、段落结构等写作风格参数，一律以风格 SKILL 为准；' +
       'JSON 输出格式、事实准确性、安全合规等硬性约束不受风格 SKILL 覆盖。\n\n' +
       styleBlock.block;
+  }
+
+  // 5) 聊天风格 SKILL（聊天生成时注入，优先级同风格 SKILL）
+  if (chatSkillPart) {
+    systemContent += '\n\n' + chatSkillPart;
   }
 
   const body = {
@@ -381,10 +391,15 @@ async function callChatJson<T>(
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
+  const reasoning = data?.choices?.[0]?.message?.reasoning_content || '';
   if (!content) {
     throw new Error('LLM API 没有返回内容。');
   }
-  return extractJson<T>(content);
+  const result = extractJson<T>(content);
+  if (reasoning) {
+    (result as any).reasoning = reasoning;
+  }
+  return result as T & { reasoning?: string };
 }
 
 function normalizeAngles(payload: { angles?: Angle[] }): Angle[] {
@@ -579,6 +594,7 @@ function normalizeResult(payload: GenerationResult): GenerationResult {
       foreign: String(row?.foreign || '').trim(),
     })),
     factChecks: normalizeFactChecks(payload.factChecks),
+    reasoning: (payload as any).reasoning || undefined,
   };
 }
 
@@ -1013,6 +1029,7 @@ export async function regenerateChat(params: {
   currentChat?: ChatRow[];
   instruction?: string;
   mode: 'fromPost' | 'continueFromEdited';
+  chatSkillContext?: string;
 }): Promise<ChatRow[]> {
   const payload = await callChatJson<{ chat: ChatRow[] }>(
     getChatConfig(params.config),
@@ -1049,7 +1066,7 @@ ${JSON.stringify(params.currentChat || [], null, 2)}
 11. 如果提供了聊天场景/起因，谁先发起、第一句话怎么切入、双方关系必须与该场景一致；场景只用来交代背景，不要在对话里原样复述场景描述。
 
 请严格输出 JSON：{"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}]}`,
-    { temperature: 0.65, useChatModel: true },
+    { temperature: 0.65, useChatModel: true, chatSkillContext: params.chatSkillContext },
   );
   return normalizeChatRows(payload.chat);
 }
@@ -1065,6 +1082,7 @@ export async function regenerateChatRow(params: {
   currentChat: ChatRow[];
   rowIndex: number;
   instruction?: string;
+  chatSkillContext?: string;
 }): Promise<ChatRow> {
   const currentRow = params.currentChat[params.rowIndex];
   const payload = await callChatJson<{ row: ChatRow }>(
@@ -1099,7 +1117,7 @@ ${JSON.stringify(currentRow || {}, null, 2)}
 6. 如果提供了聊天场景/起因，这一行要符合该场景下的人物关系和语境，但不要在句子里复述场景本身。
 
 请严格输出 JSON：{"row":{"target":"中国用户或外国用户","chinese":"...","foreign":"..."}}`,
-    { temperature: 0.68, useChatModel: true },
+    { temperature: 0.68, useChatModel: true, chatSkillContext: params.chatSkillContext },
   );
   return normalizeChatRows([payload.row])[0] || currentRow || { target: '外国用户', chinese: '', foreign: '' };
 }
@@ -1184,6 +1202,182 @@ ${params.platform ? `平台：${params.platform}` : ''}
     targetLength: Number(payload?.targetLength) || 150,
     globalInstruction: String(payload?.globalInstruction || '').trim(),
     friendPersona: String(payload?.friendPersona || '').trim(),
+  };
+}
+
+// ===================== 聊天风格 SKILL 提炼 =====================
+
+export interface ExtractedChatStyleSkill {
+  name: string;
+  description: string;
+  roundCount: number;
+  chinesePersona: string;
+  foreignPersona: string;
+  pace: string;
+  openingStyle: string;
+  followUpStyle: string;
+  toneStyle: string;
+  languageLevel: string;
+  chatRules: string;
+  commonPhrases: string;
+  globalInstruction: string;
+}
+
+export async function extractChatStyleFromSamples(params: {
+  config: LlmConfig;
+  samples: string[];
+}): Promise<ExtractedChatStyleSkill> {
+  const sampleText = params.samples
+    .map((s, i) => `【聊天样本${i + 1}】\n${s.trim()}`)
+    .join('\n\n');
+
+  const payload = await callChatJson<ExtractedChatStyleSkill>(
+    params.config,
+    `你是一位资深对话设计专家，擅长从真实聊天记录中提炼可复用的对话风格模板。
+
+请仔细分析以下 ${params.samples.length} 段聊天记录样本，提炼出它们共同的对话风格和人物设定规律。你的分析必须精准、具体、可操作。
+
+${sampleText}
+
+请从以下维度逐一分析并提炼规则：
+
+1. **name**：给这个聊天风格起一个好记的名字（不超过 8 个字）
+2. **description**：一句话描述这个风格的核心特征（不超过 30 字）
+3. **roundCount**：平均对话轮数（取整数，8-12之间）
+4. **chinesePersona**：中国用户的人设特征（性格、说话方式、常用语气等）
+5. **foreignPersona**：外国用户的人设特征（性格、说话方式、反应模式等）
+6. **pace**：对话节奏（快节奏短句/慢节奏长句/有张有弛？描述具体特征）
+7. **openingStyle**：开场方式（怎么开启话题、第一句话通常怎么说）
+8. **followUpStyle**：追问模式（怎么接话、怎么追问、怎么延伸话题）
+9. **toneStyle**：语气风格（轻松吐槽/认真好奇/朋友闲聊/等，要具体）
+10. **languageLevel**：语言难度（简单日常/地道表达/深度讨论，具体说明）
+11. **chatRules**：核心对话规则，3-5 条最关键的对话要求，每条具体可执行
+12. **commonPhrases**：双方常用的表达、口头禅、语气词（如果有的话）
+13. **globalInstruction**：全局附加指令，任何时候都要遵守的 2-3 条铁律
+
+要求：
+- 所有分析必须基于样本实际内容，不要凭空想象
+- 规则要具体到"怎么说"，而不是"说得好"
+- 例如不要写"对话很自然"，要写"每轮对话不超过 2 句话，常用语气词结尾，像真实朋友聊天"
+
+请严格输出 JSON，不要任何额外说明。`,
+    { temperature: 0.3 },
+  );
+
+  return {
+    name: String(payload?.name || '自定义聊天风格').trim(),
+    description: String(payload?.description || '').trim(),
+    roundCount: Number(payload?.roundCount) || 10,
+    chinesePersona: String(payload?.chinesePersona || '').trim(),
+    foreignPersona: String(payload?.foreignPersona || '').trim(),
+    pace: String(payload?.pace || '').trim(),
+    openingStyle: String(payload?.openingStyle || '').trim(),
+    followUpStyle: String(payload?.followUpStyle || '').trim(),
+    toneStyle: String(payload?.toneStyle || '').trim(),
+    languageLevel: String(payload?.languageLevel || '').trim(),
+    chatRules: String(payload?.chatRules || '').trim(),
+    commonPhrases: String(payload?.commonPhrases || '').trim(),
+    globalInstruction: String(payload?.globalInstruction || '').trim(),
+  };
+}
+
+// ===================== 内容审查：用方法论 SKILL 二次质检 =====================
+
+export async function reviewContentWithSkills(params: {
+  config: LlmConfig;
+  title: string;
+  post: string;
+  tags: string[];
+  platform: Platform;
+  reviewSkills: GuideSkill[];
+  styleSkillName?: string;
+}): Promise<ContentReviewReport> {
+  if (params.reviewSkills.length === 0) {
+    return {
+      overallScore: 10,
+      overallStatus: 'pass',
+      reviews: [],
+    };
+  }
+
+  const skillsText = params.reviewSkills
+    .map(
+      (s, i) =>
+        `【审查标准 ${i + 1}：${s.name}】\n${s.content.trim().slice(0, 3000)}`,
+    )
+    .join('\n\n');
+
+  const payload = await callChatJson<ContentReviewReport>(
+    params.config,
+    `你是一位严格的内容质量审查官。请根据以下 ${params.reviewSkills.length} 套审查标准，对这篇小红书笔记做全面质检。
+
+【待审查内容】
+标题：${params.title}
+正文：
+${params.post}
+标签：${params.tags.join(' ')}
+平台：${params.platform}
+${params.styleSkillName ? `当前风格 SKILL：${params.styleSkillName}` : ''}
+
+【审查标准】
+${skillsText}
+
+【要求】
+1. 逐条对照每套标准，给出 0-10 分的评分
+2. 每套标准列出 3-6 个具体检查项，每项标明 pass/warning/fail 和简短说明
+3. 给出 2-3 条具体的改进建议
+4. 最后给出总分（各标准平均分，保留 1 位小数）和总体状态（pass/warning/fail）
+   - pass：≥ 8 分
+   - warning：6-7.9 分
+   - fail：< 6 分
+5. 评分要严格，不要放水，7 分是正常水平，9 分以上是真正的爆款
+6. 所有判断必须基于内容实际情况，不要凭空捏造
+
+请严格输出 JSON：
+{
+  "overallScore": 7.5,
+  "overallStatus": "warning",
+  "reviews": [
+    {
+      "skillId": "xxx",
+      "skillName": "内容评分卡",
+      "score": 7,
+      "status": "warning",
+      "summary": "整体结构完整，但缺少互动引导",
+      "items": [
+        {"name": "痛点钩子", "pass": true, "detail": "开头直接抛出反常识问题"},
+        {"name": "互动引导", "pass": false, "detail": "结尾没有引导评论"}
+      ],
+      "suggestions": ["结尾加一个开放性问题引导讨论"]
+    }
+  ]
+}`,
+    { temperature: 0.3 },
+  );
+
+  // 把 skillId 对应上
+  const reviews = (payload.reviews || []).map((r, i) => ({
+    ...r,
+    skillId: params.reviewSkills[i]?.id || r.skillId || `review-${i}`,
+    skillName: params.reviewSkills[i]?.name || r.skillName || `审查 ${i + 1}`,
+    score: typeof r.score === 'number' ? Math.max(0, Math.min(10, r.score)) : 7,
+    status: r.status === 'pass' || r.status === 'warning' || r.status === 'fail' ? r.status : 'warning' as const,
+    items: Array.isArray(r.items) ? r.items.slice(0, 8) : [],
+    suggestions: Array.isArray(r.suggestions) ? r.suggestions.slice(0, 5) : [],
+  }));
+
+  const overallScore = reviews.length > 0
+    ? reviews.reduce((sum, r) => sum + r.score, 0) / reviews.length
+    : 10;
+
+  const overallStatus: 'pass' | 'warning' | 'fail' =
+    overallScore >= 8 ? 'pass' : overallScore >= 6 ? 'warning' : 'fail';
+
+  return {
+    overallScore: Math.round(overallScore * 10) / 10,
+    overallStatus,
+    reviews,
+    reasoning: (payload as any).reasoning,
   };
 }
 
