@@ -53,8 +53,12 @@ export function buildSkillContext(skill: StyleSkill | null): string {
   if (skill.styleRules.trim()) {
     parts.push(`核心风格规则：${skill.styleRules.trim()}`);
   }
-  if (skill.targetLength && skill.targetLength !== 150) {
-    parts.push(`正文目标字数：约 ${skill.targetLength} 字`);
+  // 始终注入目标字数（含默认值），确保风格 SKILL 的字数要求始终显式存在，
+  // 避免被通用方法论（400-800字等）或系统默认（150字）覆盖。
+  if (skill.targetLength) {
+    parts.push(
+      `正文目标字数：约 ${skill.targetLength} 字（最高优先级，覆盖系统默认和通用方法论中的任何字数规定，必须严格执行）`,
+    );
   }
   if (skill.requiredTags.length) {
     parts.push(`必带标签：${skill.requiredTags.join(' ')}`);
@@ -160,6 +164,11 @@ export function useStyleSkills() {
     return newSkill;
   }, [store.skills]);
 
+  // 云端同步：用云端数据整体替换本地 store
+  const replaceStore = useCallback((skills: StyleSkill[]) => {
+    setStore((prev) => ({ ...prev, skills }));
+  }, []);
+
   return {
     skills: store.skills,
     activeSkill,
@@ -170,5 +179,6 @@ export function useStyleSkills() {
     activateSkill,
     deactivateSkill,
     duplicateSkill,
+    replaceStore,
   };
 }

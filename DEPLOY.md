@@ -80,4 +80,27 @@ CHAT_LLM_MODEL=聊天模型名称或 endpoint id
 
 ### 不同电脑历史记录是否同步
 
-暂时不同步。历史记录存在各自电脑浏览器里。后续如果需要同步，可以再接 Supabase 或 Vercel KV。
+历史记录仍保存在各自电脑浏览器里，不同步。
+
+### 不同电脑的 SKILL / 偏好是否同步
+
+**支持同步（需配置 Vercel KV 或 Upstash Redis）。** 风格 SKILL、通用方法论 SKILL、用户偏好、爆文素材库这四类数据会自动同步到云端，在任意电脑打开都能用。
+
+配置方法（一次性）：
+
+1. 在 Vercel 项目页面打开 `Storage` 标签。
+2. 点击 `Create Database`，选择 `KV` 或 `Upstash Redis`。
+3. 给数据库起个名字，选择离你最近的区域，创建。
+4. 创建后 Vercel 会自动注入环境变量，代码两种命名都兼容：
+   - `KV_REST_API_URL` + `KV_REST_API_TOKEN`
+   - 或 `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`
+5. 回到 `Deployments`，点一次 `Redeploy` 让新环境变量生效。
+
+配置完成后：
+- 顶部会出现「已同步」绿色小标签，表示云端连接正常。
+- 修改任何 SKILL / 偏好后会自动推送到云端（约 1 秒延迟）。
+- 换电脑打开同一网址，数据会自动拉取下来。
+
+如果不配置 Vercel KV：
+- 同步功能自动禁用，顶部显示「云端未配置」。
+- 数据仍保存在各设备浏览器本地，互不影响。

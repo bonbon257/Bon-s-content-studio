@@ -5,6 +5,7 @@ import {
   Brain,
   CheckCircle2,
   Clock3,
+  Cloud,
   Copy,
   ExternalLink,
   FileText,
@@ -86,9 +87,12 @@ import type {
   Scene,
 } from './types';
 import { buildViralSkillContext } from './viralSkill';
+import { fetchCloudSkills, pushCloudSkills } from './lib/cloudSync';
 
 type AppTab = 'home' | 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
 type Stage = 'empty' | 'angles' | 'generating' | 'result';
+// 云端同步 UI 状态：idle=未开始，syncing=推送中，synced=已同步，disabled=未配置 KV，error=鉴权/网络失败
+type CloudState = 'idle' | 'syncing' | 'synced' | 'disabled' | 'error';
 
 const platforms: Platform[] = ['小红书', '抖音'];
 const VIRAL_LIBRARY_KEY = 'ht-viral-examples-library';
@@ -211,6 +215,7 @@ function TopBar({
   onCover,
   onKb,
   activeSkillName,
+  cloudState,
 }: {
   active: AppTab;
   onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
@@ -221,6 +226,7 @@ function TopBar({
   onCover: () => void;
   onKb: () => void;
   activeSkillName?: string;
+  cloudState?: CloudState;
 }) {
   return (
     <header className="mac-topbar">
@@ -241,6 +247,41 @@ function TopBar({
         })}
       </div>
       <div className="flex items-center gap-3">
+        {cloudState && cloudState !== 'idle' && (
+          <span
+            className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${
+              cloudState === 'syncing'
+                ? 'bg-[#FFF3E0] text-[#FF9F43]'
+                : cloudState === 'synced'
+                  ? 'bg-[#E8F5E9] text-[#2E7D32]'
+                  : cloudState === 'error'
+                    ? 'bg-[#FDECEA] text-[#D93025]'
+                    : 'bg-slate-100 text-slate-400'
+            }`}
+            title={
+              cloudState === 'syncing'
+                ? '正在同步到云端…'
+                : cloudState === 'synced'
+                  ? '云端已同步'
+                  : cloudState === 'error'
+                    ? '云端同步失败，请检查访问密码或网络'
+                    : '未配置云端存储（Vercel KV / Upstash Redis）'
+            }
+          >
+            {cloudState === 'syncing' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Cloud className="h-3 w-3" />
+            )}
+            {cloudState === 'syncing'
+              ? '同步中'
+              : cloudState === 'synced'
+                ? '已同步'
+                : cloudState === 'error'
+                  ? '同步失败'
+                  : '云端未配置'}
+          </span>
+        )}
         <div className="mac-top-avatar">B</div>
         <button type="button" onClick={onPreferences} className="mac-icon-btn" title="我的偏好">
           <Brain className="h-5 w-5" />
@@ -2276,7 +2317,7 @@ export default function AppShell() {
   const [coverOpen, setCoverOpen] = useState(false);
   const [kbOpen, setKbOpen] = useState(false);
   const [kbContext, setKbContext] = useState('');
-  const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
+  const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish, replaceStore: replacePrefs } = usePreferences();
   const styleSkills = useStyleSkills();
   const guideSkills = useGuideSkills();
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => loadThemeSettings());
@@ -2286,6 +2327,10 @@ export default function AppShell() {
   const [error, setError] = useState('');
   const [autoAnalyze, setAutoAnalyze] = useState(false);
   const [appPassword, setAppPassword] = useState(() => loadAppPassword());
+
+  // 云端同步状态
+  const [cloudState, setCloudState] = useState<CloudState>('idle');
+  const [cloudPulled, setCloudPulled] = useState(false);
 
   // Chat Lab (standalone chat-only workspace) state
   const [chatLabTitle, setChatLabTitle] = useState('');
@@ -2313,7 +2358,15 @@ export default function AppShell() {
   const [docError, setDocError] = useState('');
 
   const history = useHistory();
-  const viralExamples = useMemo(() => loadViralLibrary(), []);
+  const [viralExamples, setViralExamples] = useState(() => loadViralLibrary());
+  const saveViralLibrary = (value: string) => {
+    try {
+      localStorage.setItem(VIRAL_LIBRARY_KEY, value);
+    } catch {
+      // ignore
+    }
+    setViralExamples(value);
+  };
   const combinedViralExamples = useMemo(
     () => [BUILT_IN_VIRAL_EXAMPLES.trim(), viralExamples.trim()].filter(Boolean).join('\n\n'),
     [viralExamples],
@@ -2322,6 +2375,58 @@ export default function AppShell() {
   const scene: Scene = active === 'topic' ? 'topic' : 'article';
   const hasResult = !!result.title || !!result.post || (result.chat && result.chat.length > 0);
   const stage: Stage = loading === 'generate' ? 'generating' : hasResult ? 'result' : angles.length > 0 ? 'angles' : 'empty';
+
+  // ===================== 云端同步 =====================
+  // 1) 启动时从云端拉取，覆盖本地（云端为准）
+  const hasPulledRef = useRef(false);
+  useEffect(() => {
+    if (!isHostedRuntime() || !appPassword || hasPulledRef.current) return;
+    hasPulledRef.current = true;
+    (async () => {
+      const result = await fetchCloudSkills();
+      if (result.status === 'disabled') {
+        setCloudState('disabled');
+        return;
+      }
+      if (result.status === 'error') {
+        setCloudState('error');
+        return;
+      }
+      const cloud = result.data;
+      if (cloud) {
+        if (Array.isArray(cloud.styleSkills)) styleSkills.replaceStore(cloud.styleSkills);
+        if (Array.isArray(cloud.guideSkills)) guideSkills.replaceStore(cloud.guideSkills);
+        if (cloud.preferences) replacePrefs(cloud.preferences as any);
+        if (typeof cloud.viralExamples === 'string') saveViralLibrary(cloud.viralExamples);
+      }
+      setCloudPulled(true);
+      setCloudState('synced');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appPassword]);
+
+  // 2) 本地数据变更时，防抖推送到云端（仅在初始拉取成功后）
+  const pushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isHostedRuntime() || !cloudPulled || !appPassword) return;
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(async () => {
+      setCloudState('syncing');
+      const result = await pushCloudSkills({
+        styleSkills: styleSkills.skills,
+        guideSkills: guideSkills.skills,
+        preferences: prefs,
+        viralExamples,
+      });
+      setCloudState(
+        result.status === 'ok' ? 'synced' : result.status === 'disabled' ? 'disabled' : 'error',
+      );
+    }, 1200);
+    return () => {
+      if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styleSkills.skills, guideSkills.skills, prefs, viralExamples, cloudPulled, appPassword]);
 
   function showToast(message: string) {
     setToast(message);
@@ -3003,7 +3108,7 @@ export default function AppShell() {
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} cloudState={cloudState} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
