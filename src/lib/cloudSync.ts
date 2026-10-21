@@ -9,8 +9,8 @@ export interface CloudSkillsData {
   updatedAt: string;
 }
 
-// ok=正常；disabled=云端 KV 未配置；error=鉴权或网络失败
-export type CloudStatus = 'ok' | 'disabled' | 'error';
+// ok=正常；disabled=云端 KV 未配置；unauthorized=密码错误；error=网络或服务端异常
+export type CloudStatus = 'ok' | 'disabled' | 'unauthorized' | 'error';
 
 export interface CloudFetchResult {
   status: CloudStatus;
@@ -68,7 +68,9 @@ export async function fetchCloudSkills(): Promise<CloudFetchResult> {
     if (res.status === 401) {
       const message = await readError(res, '访问密码不正确。');
       console.warn('[cloudSync] 拉取失败：', message);
-      return { status: 'error', message };
+      // 密码失效时通知应用重新弹出密码输入框
+      window.dispatchEvent(new Event('app-auth-failed'));
+      return { status: 'unauthorized', message };
     }
     if (!res.ok) {
       return { status: 'error', message: `HTTP ${res.status}` };

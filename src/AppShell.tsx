@@ -29,7 +29,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
 import { CoverGenerator } from './components/CoverGenerator';
 import { HomePage } from './components/HomePage';
@@ -814,8 +814,24 @@ function loadAppPassword() {
   }
 }
 
-function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
+function PasswordGate({ onUnlock }: { onUnlock: (password: string) => Promise<boolean> }) {
   const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const password = value.trim();
+    if (!password || checking) return;
+    setChecking(true);
+    setError('');
+    const ok = await onUnlock(password);
+    setChecking(false);
+    if (!ok) {
+      setError('密码不正确，请重新输入。');
+      return;
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#D4E8E0] p-5">
@@ -827,15 +843,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
         <p className="mt-3 text-center text-sm leading-6 text-[#6B6B6B]">
           这是云端版本的个人访问保护。密码会保存在当前浏览器里，下次打开不用重复输入。
         </p>
-        <form
-          className="mt-6 space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const password = value.trim();
-            if (!password) return;
-            onUnlock(password);
-          }}
-        >
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
           <input
             type="password"
             value={value}
@@ -844,12 +852,13 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
             className="mac-input"
             autoFocus
           />
-          <button type="submit" className="mac-primary-btn w-full">
-            进入应用
+          {error && <p className="text-xs leading-5 text-[#D93025]">{error}</p>}
+          <button type="submit" className="mac-primary-btn w-full" disabled={checking}>
+            {checking ? '验证中…' : '进入应用'}
           </button>
         </form>
         <p className="mt-4 text-xs leading-5 text-[#6B6B6B]">
-          如果密码不对，生成内容时会提示 401；重新输入正确密码即可。
+          密码输错不会被保存；万一被锁住，可在「设置」里点「重新输入访问密码」。
         </p>
       </div>
     </div>
@@ -2384,6 +2393,8 @@ export default function AppShell() {
     hasPulledRef.current = true;
     (async () => {
       const result = await fetchCloudSkills();
+      // 密码错误时由全局监听器清除密码并弹出输入框，这里不覆盖状态
+      if (result.status === 'unauthorized') return;
       if (result.status === 'disabled') {
         setCloudState('disabled');
         return;
@@ -2428,12 +2439,50 @@ export default function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [styleSkills.skills, guideSkills.skills, prefs, viralExamples, cloudPulled, appPassword]);
 
+  // 密码失效（接口返回 401）时清除本地密码并重新弹出输入框，避免被错误密码锁死
+  useEffect(() => {
+    function handleAuthFailed() {
+      clearAccessPassword();
+    }
+    window.addEventListener('app-auth-failed', handleAuthFailed);
+    return () => window.removeEventListener('app-auth-failed', handleAuthFailed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function clearAccessPassword() {
+    try {
+      localStorage.removeItem(APP_PASSWORD_KEY);
+    } catch {
+      // 忽略本地存储失败
+    }
+    hasPulledRef.current = false;
+    setCloudPulled(false);
+    setCloudState('idle');
+    setAppPassword('');
+  }
+
   function showToast(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(''), 2000);
   }
 
-  function handleUnlock(password: string) {
+  function handleResetAccessPassword() {
+    clearAccessPassword();
+    setSettingsOpen(false);
+    showToast('请重新输入访问密码');
+  }
+
+  async function handleUnlock(password: string): Promise<boolean> {
+    // 云端环境下先校验密码，避免把错误密码存进本地后无法重新输入
+    try {
+      const res = await fetch('/api/skills', {
+        method: 'GET',
+        headers: { 'x-app-password': password },
+      });
+      if (res.status === 401) return false;
+    } catch {
+      // 网络异常时放行，避免完全无法进入应用
+    }
     try {
       localStorage.setItem(APP_PASSWORD_KEY, password);
     } catch {
@@ -2441,6 +2490,7 @@ export default function AppShell() {
     }
     setAppPassword(password);
     showToast('访问密码已保存');
+    return true;
   }
 
   function resetWork() {
@@ -3114,6 +3164,8 @@ export default function AppShell() {
             config={config}
             onClose={() => setSettingsOpen(false)}
             onSave={handleSaveConfig}
+            showAccessPasswordReset={isHostedRuntime() && Boolean(appPassword)}
+            onResetAccessPassword={handleResetAccessPassword}
           />
           <ThemeDrawer
             open={themeOpen}

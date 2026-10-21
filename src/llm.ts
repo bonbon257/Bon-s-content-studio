@@ -372,6 +372,10 @@ async function callChatJson<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
+    // 访问密码失效：通知应用清除本地密码并重新弹出输入框
+    if (useProxy && response.status === 401) {
+      window.dispatchEvent(new Event('app-auth-failed'));
+    }
     throw new Error(`${useProxy ? '云端代理' : 'LLM API'} 请求失败：${response.status} ${errorText.slice(0, 240)}`);
   }
 
