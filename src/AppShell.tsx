@@ -4,6 +4,7 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  Check,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -40,6 +41,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { PreferencesDrawer } from './components/PreferencesDrawer';
 import { StyleSkillDrawer } from './components/StyleSkillDrawer';
 import { ResearchView } from './components/ResearchView';
+import { ReviewSuggestionPreview, type SuggestionPreviewData } from './components/ReviewSuggestionPreview';
 import { SettingsDrawer } from './components/SettingsDrawer';
 import { ThemeDrawer } from './components/ThemeDrawer';
 import {
@@ -903,6 +905,7 @@ function OutputResult({
   onOpenChatModal,
   onOpenCover,
   onReReview,
+  onApplySuggestion,
 }: {
   result: GenerationResult;
   factCheckStatuses: Record<number, FactCheckStatus>;
@@ -936,6 +939,7 @@ function OutputResult({
   onOpenChatModal: () => void;
   onOpenCover: () => void;
   onReReview: () => void;
+  onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
 }) {
   const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean);
   const tagText = cleanTags.map((tag) => `#${tag}`).join(' ');
@@ -1069,6 +1073,7 @@ function OutputResult({
           loading={reviewLoading}
           hasEnabledGuides={enabledGuideSkills.length > 0}
           onReReview={onReReview}
+          onApplySuggestion={onApplySuggestion}
         />
         {polishChanges.length > 0 && (
           <div className="mt-4 rounded-[18px] bg-[#F5E6D0] p-3">
@@ -1235,13 +1240,16 @@ function ContentReviewPanel({
   loading,
   hasEnabledGuides,
   onReReview,
+  onApplySuggestion,
 }: {
   report: ContentReviewReport | null;
   loading: boolean;
   hasEnabledGuides: boolean;
   onReReview: () => void;
+  onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [applyingKey, setApplyingKey] = useState<string | null>(null);
 
   const statusConfig = {
     pass: { label: '优秀', color: 'text-[#2D7A3A]', bg: 'bg-[#C9EBCA]', border: 'border-[#C9EBCA]' },
@@ -1349,10 +1357,40 @@ function ContentReviewPanel({
                 {review.suggestions.length > 0 && (
                   <div className="mt-2 rounded-lg bg-[#FFF7ED] p-2">
                     <p className="mb-1 text-[10px] font-bold text-[#FF9F43]">💡 改进建议</p>
-                    <ul className="space-y-0.5 text-xs text-[#6B6B6B]">
-                      {review.suggestions.map((s, i) => (
-                        <li key={i}>• {s}</li>
-                      ))}
+                    <ul className="space-y-1.5 text-xs text-[#6B6B6B]">
+                      {review.suggestions.map((s, i) => {
+                        const key = `${review.skillId}-${i}`;
+                        const isApplying = applyingKey === key;
+                        return (
+                          <li key={i} className="flex items-start justify-between gap-2">
+                            <span className="flex-1">• {s}</span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setApplyingKey(key);
+                                try {
+                                  await onApplySuggestion(s, review.skillName);
+                                } finally {
+                                  setApplyingKey(null);
+                                }
+                              }}
+                              disabled={applyingKey !== null}
+                              className="mac-mini-btn shrink-0"
+                              title="按这条建议改写并预览"
+                            >
+                              {isApplying ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" /> 生成中
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="h-3 w-3" /> 采纳
+                                </>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
@@ -1771,6 +1809,7 @@ function DynamicCard({
   onOpenChatModal,
   onOpenCover,
   onReReview,
+  onApplySuggestion,
 }: {
   stage: Stage;
   angles: Angle[];
@@ -1816,6 +1855,7 @@ function DynamicCard({
   onOpenChatModal: () => void;
   onOpenCover: () => void;
   onReReview: () => void;
+  onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
 }) {
   return (
     <section className="mac-card mac-dynamic-card">
@@ -1866,6 +1906,7 @@ function DynamicCard({
             onOpenChatModal={onOpenChatModal}
             onOpenCover={onOpenCover}
             onReReview={onReReview}
+            onApplySuggestion={onApplySuggestion}
           />
         )}
       </AnimatePresence>
@@ -2655,6 +2696,7 @@ export default function AppShell() {
   const [selectedAngleId, setSelectedAngleId] = useState<number | null>(null);
   const [result, setResult] = useState<GenerationResult>(emptyResult);
   const [reviewReport, setReviewReport] = useState<ContentReviewReport | null>(null);
+  const [suggestionPreview, setSuggestionPreview] = useState<SuggestionPreviewData | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [factCheckStatuses, setFactCheckStatuses] = useState<Record<number, FactCheckStatus>>({});
   const [loading, setLoading] = useState<'analyze' | 'generate' | null>(null);
@@ -2994,19 +3036,19 @@ export default function AppShell() {
     }
   }
 
-  async function handleReReview() {
+  async function performReview(title: string, post: string, tags: string[]) {
     const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
     if (enabledGuides.length === 0) {
-      showToast('请先在方法论 SKILL 里启用至少一个审查标准');
+      setReviewReport(null);
       return;
     }
     setReviewLoading(true);
     try {
       const report = await reviewContentWithSkills({
         config,
-        title: result.title,
-        post: result.post,
-        tags: result.tags,
+        title,
+        post,
+        tags,
         platform,
         reviewSkills: enabledGuides,
         styleSkillName: styleSkills.activeSkill?.name,
@@ -3017,6 +3059,67 @@ export default function AppShell() {
     } finally {
       setReviewLoading(false);
     }
+  }
+
+  async function handleReReview() {
+    const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
+    if (enabledGuides.length === 0) {
+      showToast('请先在方法论 SKILL 里启用至少一个审查标准');
+      return;
+    }
+    await performReview(result.title, result.post, result.tags);
+  }
+
+  async function handleApplySuggestion(suggestion: string, skillName: string) {
+    if (!result.post.trim()) {
+      showToast('请先生成内容');
+      return;
+    }
+    try {
+      const next = await reviseGeneratedContent({
+        config,
+        mode: 'viral',
+        title: result.title,
+        post: result.post,
+        tags: result.tags,
+        instruction:
+          `【质检建议 · ${skillName}】${suggestion}\n\n` +
+          '只针对这一条建议做最小必要修改：其他段落、结构、语气和已有信息尽量保持不变，' +
+          '不要顺带改写无关内容，不要明显改变正文长度。',
+        country,
+        platform,
+        angle: selectedAngle?.title,
+        sourceContext: active === 'article' ? article : topic,
+        preferenceContext: buildFullContext('revise'),
+      });
+      setSuggestionPreview({
+        suggestion,
+        skillName,
+        beforeTitle: result.title,
+        beforePost: result.post,
+        after: next,
+      });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '按建议修改失败');
+    }
+  }
+
+  function handleAcceptSuggestion() {
+    if (!suggestionPreview) return;
+    const { after } = suggestionPreview;
+    rememberPostVersion(result.post);
+    setResult((prev) => ({
+      ...prev,
+      title: after.title,
+      post: after.post,
+      tags: after.tags,
+      factChecks: after.factChecks || prev.factChecks,
+    }));
+    if (after.factChecks) setFactCheckStatuses({});
+    setPolishChanges(after.changes?.length ? after.changes : ['已按质检建议调整标题和正文。']);
+    setSuggestionPreview(null);
+    showToast('已采纳建议，正在重新质检');
+    performReview(after.title, after.post, after.tags);
   }
 
   function handleCopy(text: string) {
@@ -3567,6 +3670,11 @@ export default function AppShell() {
         onContinue={(instruction, scene) => handleRegenerateChat('continueFromEdited', instruction, scene)}
         onRegenerateRow={handleRegenerateChatRow}
       />
+      <ReviewSuggestionPreview
+        data={suggestionPreview}
+        onClose={() => setSuggestionPreview(null)}
+        onApply={handleAcceptSuggestion}
+      />
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
@@ -3839,6 +3947,7 @@ export default function AppShell() {
                 onOpenChatModal={() => setChatModalOpen(true)}
                 onOpenCover={() => setCoverOpen(true)}
                 onReReview={handleReReview}
+                onApplySuggestion={handleApplySuggestion}
               />
             </div>
           )}
