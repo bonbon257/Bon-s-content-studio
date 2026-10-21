@@ -157,7 +157,7 @@ ${FACT_RULES}
 - 标题自检标准：如果你自己刷到这个标题，会不会想点进去看？如果不会，请重写。
 
 正文规则：
-- 150字左右（130-170字），第一人称，像普通用户发帖；能短则短，绝对不要为了凑字数重复解释或堆砌形容词。
+- 正文目标字数默认 150 字左右（130-170字）；若当前激活风格 SKILL 指定了目标字数，必须严格以风格 SKILL 的目标字数为准，不得自行改为 150 字。第一人称，像普通用户发帖；能短则短，绝对不要为了凑字数重复解释或堆砌形容词。
 - 必须严格三段式，用换行分成三段。
 - 第一段：现状、生活观察或疑问，用一句有画面感的话开头，让用户秒懂场景。
 - 第二段：写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给的真实回应；只能出现一个外国朋友，不要出现"我又问了另一个外国人""我朋友们""几个外国人""一群外国人"。禁止写"先和外国人聊天/认识，然后再去 HelloTalk"的逻辑，这位朋友本身就是在 HelloTalk 上认识的。
@@ -166,7 +166,7 @@ ${FACT_RULES}
 - 禁止"下载""推广""点击""快去用"等硬广表达。
 - 正文不要重复标题，不要重复同一个观点，不要写成科普说明文；重点是让用户看完觉得"这个观察有意思/我也想评论/我愿意点赞"。
 - 正文是"钩子"，目的是勾起用户兴趣，让他们想继续看聊天记录了解详情；正文不要试图把一切都讲完。
-- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？是否全文只出现了一个外国朋友？是否表达成"在 HelloTalk 上认识的朋友"，而不是"和外国人聊天后再去 HelloTalk"？正文是否在150字左右、没有冗杂？如果没有，请重写。
+- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？是否全文只出现了一个外国朋友？是否表达成"在 HelloTalk 上认识的朋友"，而不是"和外国人聊天后再去 HelloTalk"？正文字数是否符合目标字数（默认150字左右，风格SKILL指定则以其为准）、没有冗杂？如果没有，请重写。
 
 Tag 规则：
 - 输出 5-8 个标签。
@@ -294,7 +294,9 @@ async function callChatJson<T>(
     throw new Error('缺少 LLM API Key，请在 .env.local 中配置 VITE_LLM_API_KEY。');
   }
 
-  // 智能注入：把「风格 SKILL」「通用方法论 SKILL」从上下文中识别出来并前置
+  // 智能注入：从 preferenceContext 中剥离「风格 SKILL」「通用方法论 SKILL」，
+  // 再按"低优先级在前、高优先级在后"的顺序组装，利用 LLM 近因偏差让高优先级规则真正生效。
+  // 冲突解决优先级（高 → 低）：风格 SKILL > 通用方法论 SKILL > 用户偏好 > 系统默认规则。
   let systemContent = '';
   let prefPart = options?.preferenceContext || '';
 
@@ -309,27 +311,38 @@ async function callChatJson<T>(
     };
   };
 
-  // 风格 SKILL：最高优先级
   const styleBlock = stripBlock(prefPart, '【当前激活风格 SKILL');
   prefPart = styleBlock.rest;
-  // 通用方法论 SKILL：次高优先级
   const guideBlock = stripBlock(prefPart, '【通用爆文方法论 SKILL');
   prefPart = guideBlock.rest;
 
-  if (styleBlock.block) {
-    systemContent += styleBlock.block;
-    systemContent += '\n\n';
-  }
-  if (guideBlock.block) {
-    systemContent += guideBlock.block;
-    systemContent += '\n\n';
-  }
-
+  // 1) 系统默认规则（最低优先级，作为基线）
   systemContent += options?.systemPrompt ?? SYSTEM_PROMPT;
 
-  // 用户偏好注入：放在后面，作为补充
+  // 2) 通用爆文方法论 SKILL（次低优先级）
+  if (guideBlock.block) {
+    systemContent += '\n\n' + guideBlock.block;
+  }
+
+  // 3) 用户偏好 & 知识库（次高优先级）
   if (prefPart.trim()) {
     systemContent += '\n\n' + prefPart.trim();
+  }
+
+  // 4) 风格 SKILL（最高优先级，紧贴 user message 放置以获得最大权重）
+  //    覆盖范围：字数、正文结构、标题模式、开头/结尾模式、语气风格、标签等写作风格类规则；
+  //    不覆盖：JSON 输出格式、事实准确性、安全合规等硬性约束。
+  if (styleBlock.block) {
+    systemContent +=
+      '\n\n【规则冲突解决声明】\n' +
+      '当写作规则出现冲突时，严格按以下优先级执行（高优先级覆盖低优先级）：\n' +
+      '1. 当前激活风格 SKILL（从你的爆文中提炼）—— 最高优先级，尤其字数、结构、语气、标题模式\n' +
+      '2. 通用爆文方法论 SKILL\n' +
+      '3. 用户偏好\n' +
+      '4. 系统默认规则\n' +
+      '注意：正文目标字数、段落结构等写作风格参数，一律以风格 SKILL 为准；' +
+      'JSON 输出格式、事实准确性、安全合规等硬性约束不受风格 SKILL 覆盖。\n\n' +
+      styleBlock.block;
   }
 
   const body = {
