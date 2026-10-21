@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { AutoLearnedPreferences, ManualPreferences, UserPreferences } from '../types';
 
 const PREFERENCES_KEY = 'ht-user-preferences-v1';
@@ -296,6 +296,17 @@ export function usePreferences() {
 
   const contextString = useMemo(() => buildPreferenceContext(prefs), [prefs]);
 
+  // 云端同步：用云端数据整体替换本地 prefs（补齐本地新增字段的默认值）
+  const replaceStore = useCallback((next: UserPreferences) => {
+    const merged: UserPreferences = {
+      auto: { ...DEFAULT_AUTO, ...next.auto },
+      manual: { ...DEFAULT_MANUAL, ...next.manual },
+      version: next.version || 1,
+    };
+    setPrefs(merged);
+    writePreferences(merged);
+  }, []);
+
   return {
     prefs,
     contextString,
@@ -305,5 +316,6 @@ export function usePreferences() {
     learnFromGeneration,
     learnFromInstruction,
     learnFromPolish,
+    replaceStore,
   };
 }

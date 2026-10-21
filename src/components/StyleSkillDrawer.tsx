@@ -583,7 +583,7 @@ function SkillListView({
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-[#FF9F43]" />
-              <span className="text-sm font-bold text-[#1A1A1A]">当前激活</span>
+              <span className="text-sm font-bold text-[#1A1A1A]">当前用于文章生成</span>
             </div>
             <button type="button" onClick={onDeactivate} className="text-xs text-[#FF9F43] hover:underline">
               停用
@@ -682,7 +682,7 @@ function SkillCard({
               ? 'bg-[#FF9F43] text-white'
               : 'bg-[#F5F0E8] text-[#6B6B6B] hover:bg-[#FF9F43]/20 hover:text-[#FF9F43]'
           }`}
-          title={isActive ? '已激活' : '激活此 SKILL'}
+          title={isActive ? '已用于文章生成' : '用于文章生成'}
         >
           <Check className="h-4 w-4" />
         </button>

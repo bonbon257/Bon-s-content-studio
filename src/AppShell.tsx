@@ -4,9 +4,11 @@ import {
   BookOpen,
   Brain,
   CheckCircle2,
+  Check,
   ChevronDown,
   ChevronUp,
   Clock3,
+  Cloud,
   Copy,
   ExternalLink,
   FileText,
@@ -30,7 +32,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
 import { CoverGenerator } from './components/CoverGenerator';
 import { HomePage } from './components/HomePage';
@@ -39,6 +41,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { PreferencesDrawer } from './components/PreferencesDrawer';
 import { StyleSkillDrawer } from './components/StyleSkillDrawer';
 import { ResearchView } from './components/ResearchView';
+import { ReviewSuggestionPreview, type SuggestionPreviewData } from './components/ReviewSuggestionPreview';
 import { SettingsDrawer } from './components/SettingsDrawer';
 import { ThemeDrawer } from './components/ThemeDrawer';
 import {
@@ -91,9 +94,12 @@ import type {
   Scene,
 } from './types';
 import { buildViralSkillContext } from './viralSkill';
+import { fetchCloudSkills, pushCloudSkills } from './lib/cloudSync';
 
 type AppTab = 'home' | 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
 type Stage = 'empty' | 'angles' | 'generating' | 'result';
+// 云端同步 UI 状态：idle=未开始，syncing=推送中，synced=已同步，disabled=未配置 KV，error=鉴权/网络失败
+type CloudState = 'idle' | 'syncing' | 'synced' | 'disabled' | 'error';
 
 const platforms: Platform[] = ['小红书', '抖音'];
 const VIRAL_LIBRARY_KEY = 'ht-viral-examples-library';
@@ -216,6 +222,7 @@ function TopBar({
   onCover,
   onKb,
   activeSkillName,
+  cloudState,
 }: {
   active: AppTab;
   onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
@@ -226,6 +233,7 @@ function TopBar({
   onCover: () => void;
   onKb: () => void;
   activeSkillName?: string;
+  cloudState?: CloudState;
 }) {
   return (
     <header className="mac-topbar">
@@ -246,6 +254,41 @@ function TopBar({
         })}
       </div>
       <div className="flex items-center gap-3">
+        {cloudState && cloudState !== 'idle' && (
+          <span
+            className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${
+              cloudState === 'syncing'
+                ? 'bg-[#FFF3E0] text-[#FF9F43]'
+                : cloudState === 'synced'
+                  ? 'bg-[#E8F5E9] text-[#2E7D32]'
+                  : cloudState === 'error'
+                    ? 'bg-[#FDECEA] text-[#D93025]'
+                    : 'bg-slate-100 text-slate-400'
+            }`}
+            title={
+              cloudState === 'syncing'
+                ? '正在同步到云端…'
+                : cloudState === 'synced'
+                  ? '云端已同步'
+                  : cloudState === 'error'
+                    ? '云端同步失败，请检查访问密码或网络'
+                    : '未配置云端存储（Vercel KV / Upstash Redis）'
+            }
+          >
+            {cloudState === 'syncing' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Cloud className="h-3 w-3" />
+            )}
+            {cloudState === 'syncing'
+              ? '同步中'
+              : cloudState === 'synced'
+                ? '已同步'
+                : cloudState === 'error'
+                  ? '同步失败'
+                  : '云端未配置'}
+          </span>
+        )}
         <div className="mac-top-avatar">B</div>
         <button type="button" onClick={onPreferences} className="mac-icon-btn" title="我的偏好">
           <Brain className="h-5 w-5" />
@@ -778,8 +821,24 @@ function loadAppPassword() {
   }
 }
 
-function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
+function PasswordGate({ onUnlock }: { onUnlock: (password: string) => Promise<boolean> }) {
   const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const password = value.trim();
+    if (!password || checking) return;
+    setChecking(true);
+    setError('');
+    const ok = await onUnlock(password);
+    setChecking(false);
+    if (!ok) {
+      setError('密码不正确，请重新输入。');
+      return;
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#D4E8E0] p-5">
@@ -791,15 +850,7 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
         <p className="mt-3 text-center text-sm leading-6 text-[#6B6B6B]">
           这是云端版本的个人访问保护。密码会保存在当前浏览器里，下次打开不用重复输入。
         </p>
-        <form
-          className="mt-6 space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const password = value.trim();
-            if (!password) return;
-            onUnlock(password);
-          }}
-        >
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
           <input
             type="password"
             value={value}
@@ -808,12 +859,13 @@ function PasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
             className="mac-input"
             autoFocus
           />
-          <button type="submit" className="mac-primary-btn w-full">
-            进入应用
+          {error && <p className="text-xs leading-5 text-[#D93025]">{error}</p>}
+          <button type="submit" className="mac-primary-btn w-full" disabled={checking}>
+            {checking ? '验证中…' : '进入应用'}
           </button>
         </form>
         <p className="mt-4 text-xs leading-5 text-[#6B6B6B]">
-          如果密码不对，生成内容时会提示 401；重新输入正确密码即可。
+          密码输错不会被保存；万一被锁住，可在「设置」里点「重新输入访问密码」。
         </p>
       </div>
     </div>
@@ -853,6 +905,7 @@ function OutputResult({
   onOpenChatModal,
   onOpenCover,
   onReReview,
+  onApplySuggestion,
 }: {
   result: GenerationResult;
   factCheckStatuses: Record<number, FactCheckStatus>;
@@ -886,6 +939,7 @@ function OutputResult({
   onOpenChatModal: () => void;
   onOpenCover: () => void;
   onReReview: () => void;
+  onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
 }) {
   const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean);
   const tagText = cleanTags.map((tag) => `#${tag}`).join(' ');
@@ -1019,6 +1073,7 @@ function OutputResult({
           loading={reviewLoading}
           hasEnabledGuides={enabledGuideSkills.length > 0}
           onReReview={onReReview}
+          onApplySuggestion={onApplySuggestion}
         />
         {polishChanges.length > 0 && (
           <div className="mt-4 rounded-[18px] bg-[#F5E6D0] p-3">
@@ -1185,13 +1240,16 @@ function ContentReviewPanel({
   loading,
   hasEnabledGuides,
   onReReview,
+  onApplySuggestion,
 }: {
   report: ContentReviewReport | null;
   loading: boolean;
   hasEnabledGuides: boolean;
   onReReview: () => void;
+  onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [applyingKey, setApplyingKey] = useState<string | null>(null);
 
   const statusConfig = {
     pass: { label: '优秀', color: 'text-[#2D7A3A]', bg: 'bg-[#C9EBCA]', border: 'border-[#C9EBCA]' },
@@ -1299,10 +1357,40 @@ function ContentReviewPanel({
                 {review.suggestions.length > 0 && (
                   <div className="mt-2 rounded-lg bg-[#FFF7ED] p-2">
                     <p className="mb-1 text-[10px] font-bold text-[#FF9F43]">💡 改进建议</p>
-                    <ul className="space-y-0.5 text-xs text-[#6B6B6B]">
-                      {review.suggestions.map((s, i) => (
-                        <li key={i}>• {s}</li>
-                      ))}
+                    <ul className="space-y-1.5 text-xs text-[#6B6B6B]">
+                      {review.suggestions.map((s, i) => {
+                        const key = `${review.skillId}-${i}`;
+                        const isApplying = applyingKey === key;
+                        return (
+                          <li key={i} className="flex items-start justify-between gap-2">
+                            <span className="flex-1">• {s}</span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setApplyingKey(key);
+                                try {
+                                  await onApplySuggestion(s, review.skillName);
+                                } finally {
+                                  setApplyingKey(null);
+                                }
+                              }}
+                              disabled={applyingKey !== null}
+                              className="mac-mini-btn shrink-0"
+                              title="按这条建议改写并预览"
+                            >
+                              {isApplying ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" /> 生成中
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="h-3 w-3" /> 采纳
+                                </>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}
@@ -1402,6 +1490,8 @@ function ChatResult({
   rows,
   loading,
   rowLoadingIndex,
+  scene,
+  onSceneChange,
   onChange,
   onCopy,
   onRegenerate,
@@ -1411,11 +1501,13 @@ function ChatResult({
   rows: ChatRow[];
   loading: boolean;
   rowLoadingIndex: number | null;
+  scene: string;
+  onSceneChange: (value: string) => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
-  onRegenerate: (instruction?: string) => Promise<boolean>;
-  onContinue: (instruction?: string) => Promise<boolean>;
-  onRegenerateRow: (index: number, instruction?: string) => Promise<boolean>;
+  onRegenerate: (instruction?: string, scene?: string) => Promise<boolean>;
+  onContinue: (instruction?: string, scene?: string) => Promise<boolean>;
+  onRegenerateRow: (index: number, instruction?: string, scene?: string) => Promise<boolean>;
 }) {
   const [chatInstruction, setChatInstruction] = useState('');
 
@@ -1434,7 +1526,7 @@ function ChatResult({
           <button
             type="button"
             onClick={async () => {
-              const ok = await onRegenerate(chatInstruction);
+              const ok = await onRegenerate(chatInstruction, scene);
               if (ok) setChatInstruction('');
             }}
             className="mac-mini-btn"
@@ -1448,7 +1540,7 @@ function ChatResult({
               <button
                 type="button"
                 onClick={async () => {
-                  const ok = await onContinue(chatInstruction);
+                  const ok = await onContinue(chatInstruction, scene);
                   if (ok) setChatInstruction('');
                 }}
                 className="mac-mini-btn"
@@ -1520,7 +1612,7 @@ function ChatResult({
                         <button
                           type="button"
                           onClick={async () => {
-                            const ok = await onRegenerateRow(index, chatInstruction);
+                            const ok = await onRegenerateRow(index, chatInstruction, scene);
                             if (ok) setChatInstruction('');
                           }}
                           disabled={loading || rowLoadingIndex !== null}
@@ -1550,6 +1642,23 @@ function ChatResult({
           </p>
         </>
       )}
+      <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <label className="mac-label !mb-0">聊天场景 / 起因（可选）</label>
+          {scene.trim() && (
+            <button type="button" onClick={() => onSceneChange('')} className="mac-clear-btn">
+              一键清空
+            </button>
+          )}
+        </div>
+        <textarea
+          value={scene}
+          onChange={(event) => onSceneChange(event.target.value)}
+          rows={2}
+          placeholder="例如：我在动态里吐槽被外国朋友追问收入，他看到后私信我解释为什么这么问；或者：他先在我的动态下留言，我才开始私聊。"
+          className="mac-textarea !min-h-[72px] !bg-white"
+        />
+      </div>
       <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
         <div className="mb-2 flex items-center justify-between gap-3">
           <label className="mac-label !mb-0">聊天记录修改建议</label>
@@ -1588,6 +1697,8 @@ function ChatModal({
   rows,
   loading,
   rowLoadingIndex,
+  scene,
+  onSceneChange,
   onClose,
   onChange,
   onCopy,
@@ -1599,12 +1710,14 @@ function ChatModal({
   rows: ChatRow[];
   loading: boolean;
   rowLoadingIndex: number | null;
+  scene: string;
+  onSceneChange: (value: string) => void;
   onClose: () => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
-  onRegenerate: (instruction?: string) => Promise<boolean>;
-  onContinue: (instruction?: string) => Promise<boolean>;
-  onRegenerateRow: (index: number, instruction?: string) => Promise<boolean>;
+  onRegenerate: (instruction?: string, scene?: string) => Promise<boolean>;
+  onContinue: (instruction?: string, scene?: string) => Promise<boolean>;
+  onRegenerateRow: (index: number, instruction?: string, scene?: string) => Promise<boolean>;
 }) {
   if (!open) return null;
 
@@ -1637,6 +1750,8 @@ function ChatModal({
             rows={rows}
             loading={loading}
             rowLoadingIndex={rowLoadingIndex}
+            scene={scene}
+            onSceneChange={onSceneChange}
             onChange={onChange}
             onCopy={onCopy}
             onRegenerate={onRegenerate}
@@ -1694,6 +1809,7 @@ function DynamicCard({
   onOpenChatModal,
   onOpenCover,
   onReReview,
+  onApplySuggestion,
 }: {
   stage: Stage;
   angles: Angle[];
@@ -1739,6 +1855,7 @@ function DynamicCard({
   onOpenChatModal: () => void;
   onOpenCover: () => void;
   onReReview: () => void;
+  onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
 }) {
   return (
     <section className="mac-card mac-dynamic-card">
@@ -1789,6 +1906,7 @@ function DynamicCard({
             onOpenChatModal={onOpenChatModal}
             onOpenCover={onOpenCover}
             onReReview={onReReview}
+            onApplySuggestion={onApplySuggestion}
           />
         )}
       </AnimatePresence>
@@ -1814,6 +1932,10 @@ function AppRecommendationView({
   onRevise,
   onClear,
   onCopy,
+  styleSkills,
+  appStyleSkillId,
+  enabledGuideCount,
+  onSelectAppStyleSkill,
 }: {
   topic: string;
   material: string;
@@ -1821,6 +1943,10 @@ function AppRecommendationView({
   loading: boolean;
   revising: boolean;
   error: string;
+  styleSkills: Array<{ id: string; name: string }>;
+  appStyleSkillId: string | null;
+  enabledGuideCount: number;
+  onSelectAppStyleSkill: (id: string | null) => void;
   onTopicChange: (value: string) => void;
   onMaterialChange: (value: string) => void;
   onResultChange: (value: AppRecommendationResult) => void;
@@ -1872,6 +1998,29 @@ function AppRecommendationView({
               placeholder="例如：马上要去日本玩想学点日语"
               className="mac-input"
             />
+          </label>
+
+          <label className="block">
+            <span className="mac-label">风格 SKILL（仅作用于 APP 推荐）</span>
+            <select
+              value={appStyleSkillId || ''}
+              onChange={(event) => onSelectAppStyleSkill(event.target.value || null)}
+              className="mac-input"
+            >
+              <option value="">不使用风格 SKILL</option>
+              {styleSkills.map((skill) => (
+                <option key={skill.id} value={skill.id}>
+                  {skill.name}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-[#6B6B6B]">
+              {styleSkills.length === 0
+                ? '还没有风格 SKILL，可在顶部「SKILL」里从爆文提炼。'
+                : enabledGuideCount > 0
+                  ? `与文章生成的选择互不影响，同时参考 ${enabledGuideCount} 个已启用的方法论 SKILL。`
+                  : '与文章生成的选择互不影响；启用方法论 SKILL 后会自动参考。'}
+            </span>
           </label>
 
           <label className="block">
@@ -2035,12 +2184,14 @@ function ChatLabView({
   loading,
   rowLoadingIndex,
   instruction,
+  scene,
   error,
   onCountryChange,
   onPlatformChange,
   onTitleChange,
   onPostChange,
   onInstructionChange,
+  onSceneChange,
   onClearPost,
   onChange,
   onCopy,
@@ -2056,12 +2207,14 @@ function ChatLabView({
   loading: boolean;
   rowLoadingIndex: number | null;
   instruction: string;
+  scene: string;
   error: string;
   onCountryChange: (value: Country) => void;
   onPlatformChange: (value: Platform) => void;
   onTitleChange: (value: string) => void;
   onPostChange: (value: string) => void;
   onInstructionChange: (value: string) => void;
+  onSceneChange: (value: string) => void;
   onClearPost: () => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
@@ -2119,7 +2272,7 @@ function ChatLabView({
           <div className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
               <span className="mac-label !mb-0">输入内容</span>
-              {(title.trim() || post.trim() || instruction.trim() || rows.length > 0) && (
+              {(title.trim() || post.trim() || instruction.trim() || scene.trim() || rows.length > 0) && (
                 <button type="button" onClick={onClearPost} className="mac-clear-btn">
                   一键清空全部
                 </button>
@@ -2141,6 +2294,16 @@ function ChatLabView({
                 onChange={(event) => onPostChange(event.target.value)}
                 placeholder="粘贴你最终版的正文..."
                 className="mac-textarea"
+              />
+            </label>
+            <label>
+              <span className="mac-label">聊天场景 / 起因（可选）</span>
+              <textarea
+                value={scene}
+                onChange={(event) => onSceneChange(event.target.value)}
+                rows={2}
+                placeholder="例如：我在动态里吐槽被外国朋友追问收入，他看到后私信我解释为什么这么问。写明为什么会有这段聊天，生成的开场会更自然。"
+                className="mac-textarea !min-h-[72px]"
               />
             </label>
             <label>
@@ -2564,6 +2727,7 @@ export default function AppShell() {
   const [selectedAngleId, setSelectedAngleId] = useState<number | null>(null);
   const [result, setResult] = useState<GenerationResult>(emptyResult);
   const [reviewReport, setReviewReport] = useState<ContentReviewReport | null>(null);
+  const [suggestionPreview, setSuggestionPreview] = useState<SuggestionPreviewData | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [factCheckStatuses, setFactCheckStatuses] = useState<Record<number, FactCheckStatus>>({});
   const [loading, setLoading] = useState<'analyze' | 'generate' | null>(null);
@@ -2579,6 +2743,7 @@ export default function AppShell() {
   const [contentResearchLoading, setContentResearchLoading] = useState(false);
   const [contentResearchError, setContentResearchError] = useState('');
   const [chatModalOpen, setChatModalOpen] = useState(false);
+  const [chatScene, setChatScene] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
@@ -2586,7 +2751,7 @@ export default function AppShell() {
   const [coverOpen, setCoverOpen] = useState(false);
   const [kbOpen, setKbOpen] = useState(false);
   const [kbContext, setKbContext] = useState('');
-  const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish } = usePreferences();
+  const { prefs, contextString, saveManual, resetManual, resetAuto, learnFromGeneration, learnFromInstruction, learnFromPolish, replaceStore: replacePrefs } = usePreferences();
   const styleSkills = useStyleSkills();
   const chatSkills = useChatSkills();
   const guideSkills = useGuideSkills();
@@ -2598,10 +2763,15 @@ export default function AppShell() {
   const [autoAnalyze, setAutoAnalyze] = useState(false);
   const [appPassword, setAppPassword] = useState(() => loadAppPassword());
 
+  // 云端同步状态
+  const [cloudState, setCloudState] = useState<CloudState>('idle');
+  const [cloudPulled, setCloudPulled] = useState(false);
+
   // Chat Lab (standalone chat-only workspace) state
   const [chatLabTitle, setChatLabTitle] = useState('');
   const [chatLabPost, setChatLabPost] = useState('');
   const [chatLabInstruction, setChatLabInstruction] = useState('');
+  const [chatLabScene, setChatLabScene] = useState('');
   const [chatLabRows, setChatLabRows] = useState<ChatRow[]>([]);
   const [chatLabLoading, setChatLabLoading] = useState(false);
   const [chatLabRowLoadingIndex, setChatLabRowLoadingIndex] = useState<number | null>(null);
@@ -2624,7 +2794,15 @@ export default function AppShell() {
   const [docError, setDocError] = useState('');
 
   const history = useHistory();
-  const viralExamples = useMemo(() => loadViralLibrary(), []);
+  const [viralExamples, setViralExamples] = useState(() => loadViralLibrary());
+  const saveViralLibrary = (value: string) => {
+    try {
+      localStorage.setItem(VIRAL_LIBRARY_KEY, value);
+    } catch {
+      // ignore
+    }
+    setViralExamples(value);
+  };
   const combinedViralExamples = useMemo(
     () => [BUILT_IN_VIRAL_EXAMPLES.trim(), viralExamples.trim()].filter(Boolean).join('\n\n'),
     [viralExamples],
@@ -2634,12 +2812,104 @@ export default function AppShell() {
   const hasResult = !!result.title || !!result.post || (result.chat && result.chat.length > 0);
   const stage: Stage = loading === 'generate' ? 'generating' : hasResult ? 'result' : angles.length > 0 ? 'angles' : 'empty';
 
+  // ===================== 云端同步 =====================
+  // 1) 启动时从云端拉取，覆盖本地（云端为准）
+  const hasPulledRef = useRef(false);
+  useEffect(() => {
+    if (!isHostedRuntime() || !appPassword || hasPulledRef.current) return;
+    hasPulledRef.current = true;
+    (async () => {
+      const result = await fetchCloudSkills();
+      // 密码错误时由全局监听器清除密码并弹出输入框，这里不覆盖状态
+      if (result.status === 'unauthorized') return;
+      if (result.status === 'disabled') {
+        setCloudState('disabled');
+        return;
+      }
+      if (result.status === 'error') {
+        setCloudState('error');
+        return;
+      }
+      const cloud = result.data;
+      if (cloud) {
+        if (Array.isArray(cloud.styleSkills)) styleSkills.replaceStore(cloud.styleSkills);
+        if (Array.isArray(cloud.guideSkills)) guideSkills.replaceStore(cloud.guideSkills);
+        if (cloud.preferences) replacePrefs(cloud.preferences as any);
+        if (typeof cloud.viralExamples === 'string') saveViralLibrary(cloud.viralExamples);
+      }
+      setCloudPulled(true);
+      setCloudState('synced');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appPassword]);
+
+  // 2) 本地数据变更时，防抖推送到云端（仅在初始拉取成功后）
+  const pushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isHostedRuntime() || !cloudPulled || !appPassword) return;
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(async () => {
+      setCloudState('syncing');
+      const result = await pushCloudSkills({
+        styleSkills: styleSkills.skills,
+        guideSkills: guideSkills.skills,
+        preferences: prefs,
+        viralExamples,
+      });
+      setCloudState(
+        result.status === 'ok' ? 'synced' : result.status === 'disabled' ? 'disabled' : 'error',
+      );
+    }, 1200);
+    return () => {
+      if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styleSkills.skills, guideSkills.skills, prefs, viralExamples, cloudPulled, appPassword]);
+
+  // 密码失效（接口返回 401）时清除本地密码并重新弹出输入框，避免被错误密码锁死
+  useEffect(() => {
+    function handleAuthFailed() {
+      clearAccessPassword();
+    }
+    window.addEventListener('app-auth-failed', handleAuthFailed);
+    return () => window.removeEventListener('app-auth-failed', handleAuthFailed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function clearAccessPassword() {
+    try {
+      localStorage.removeItem(APP_PASSWORD_KEY);
+    } catch {
+      // 忽略本地存储失败
+    }
+    hasPulledRef.current = false;
+    setCloudPulled(false);
+    setCloudState('idle');
+    setAppPassword('');
+  }
+
   function showToast(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(''), 2000);
   }
 
-  function handleUnlock(password: string) {
+  function handleResetAccessPassword() {
+    clearAccessPassword();
+    setSettingsOpen(false);
+    showToast('请重新输入访问密码');
+  }
+
+  async function handleUnlock(password: string): Promise<boolean> {
+    // 云端环境下先校验密码，避免把错误密码存进本地后无法重新输入
+    try {
+      const res = await fetch('/api/skills', {
+        method: 'GET',
+        headers: { 'x-app-password': password },
+      });
+      if (res.status === 401) return false;
+    } catch {
+      // 网络异常时放行，避免完全无法进入应用
+    }
     try {
       localStorage.setItem(APP_PASSWORD_KEY, password);
     } catch {
@@ -2647,6 +2917,7 @@ export default function AppShell() {
     }
     setAppPassword(password);
     showToast('访问密码已保存');
+    return true;
   }
 
   function resetWork() {
@@ -2796,19 +3067,19 @@ export default function AppShell() {
     }
   }
 
-  async function handleReReview() {
+  async function performReview(title: string, post: string, tags: string[]) {
     const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
     if (enabledGuides.length === 0) {
-      showToast('请先在方法论 SKILL 里启用至少一个审查标准');
+      setReviewReport(null);
       return;
     }
     setReviewLoading(true);
     try {
       const report = await reviewContentWithSkills({
         config,
-        title: result.title,
-        post: result.post,
-        tags: result.tags,
+        title,
+        post,
+        tags,
         platform,
         reviewSkills: enabledGuides,
         styleSkillName: styleSkills.activeSkill?.name,
@@ -2819,6 +3090,67 @@ export default function AppShell() {
     } finally {
       setReviewLoading(false);
     }
+  }
+
+  async function handleReReview() {
+    const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
+    if (enabledGuides.length === 0) {
+      showToast('请先在方法论 SKILL 里启用至少一个审查标准');
+      return;
+    }
+    await performReview(result.title, result.post, result.tags);
+  }
+
+  async function handleApplySuggestion(suggestion: string, skillName: string) {
+    if (!result.post.trim()) {
+      showToast('请先生成内容');
+      return;
+    }
+    try {
+      const next = await reviseGeneratedContent({
+        config,
+        mode: 'viral',
+        title: result.title,
+        post: result.post,
+        tags: result.tags,
+        instruction:
+          `【质检建议 · ${skillName}】${suggestion}\n\n` +
+          '只针对这一条建议做最小必要修改：其他段落、结构、语气和已有信息尽量保持不变，' +
+          '不要顺带改写无关内容，不要明显改变正文长度。',
+        country,
+        platform,
+        angle: selectedAngle?.title,
+        sourceContext: active === 'article' ? article : topic,
+        preferenceContext: buildFullContext('revise'),
+      });
+      setSuggestionPreview({
+        suggestion,
+        skillName,
+        beforeTitle: result.title,
+        beforePost: result.post,
+        after: next,
+      });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '按建议修改失败');
+    }
+  }
+
+  function handleAcceptSuggestion() {
+    if (!suggestionPreview) return;
+    const { after } = suggestionPreview;
+    rememberPostVersion(result.post);
+    setResult((prev) => ({
+      ...prev,
+      title: after.title,
+      post: after.post,
+      tags: after.tags,
+      factChecks: after.factChecks || prev.factChecks,
+    }));
+    if (after.factChecks) setFactCheckStatuses({});
+    setPolishChanges(after.changes?.length ? after.changes : ['已按质检建议调整标题和正文。']);
+    setSuggestionPreview(null);
+    showToast('已采纳建议，正在重新质检');
+    performReview(after.title, after.post, after.tags);
   }
 
   function handleCopy(text: string) {
@@ -2946,7 +3278,11 @@ export default function AppShell() {
     }
   }
 
-  async function handleRegenerateChat(mode: 'fromPost' | 'continueFromEdited', instruction?: string) {
+  async function handleRegenerateChat(
+    mode: 'fromPost' | 'continueFromEdited',
+    instruction?: string,
+    scene?: string,
+  ) {
     if (!result.post.trim()) {
       showToast('请先生成或填写正文');
       return false;
@@ -2960,6 +3296,7 @@ export default function AppShell() {
         title: result.title,
         post: result.post,
         angle: selectedAngle?.title,
+        scene,
         currentChat: result.chat,
         instruction,
         mode,
@@ -3003,7 +3340,7 @@ export default function AppShell() {
     }
   }
 
-  async function handleRegenerateChatRow(index: number, instruction?: string) {
+  async function handleRegenerateChatRow(index: number, instruction?: string, scene?: string) {
     if (!result.post.trim()) {
       showToast('请先生成或填写正文');
       return false;
@@ -3017,6 +3354,7 @@ export default function AppShell() {
         title: result.title,
         post: result.post,
         angle: selectedAngle?.title,
+        scene,
         currentChat: result.chat,
         rowIndex: index,
         instruction,
@@ -3051,6 +3389,7 @@ export default function AppShell() {
         platform,
         title: chatLabTitle,
         post: chatLabPost,
+        scene: chatLabScene,
         currentChat: chatLabRows,
         instruction: chatLabInstruction,
         mode,
@@ -3082,6 +3421,7 @@ export default function AppShell() {
         platform,
         title: chatLabTitle,
         post: chatLabPost,
+        scene: chatLabScene,
         currentChat: chatLabRows,
         rowIndex: index,
         instruction: chatLabInstruction,
@@ -3107,7 +3447,12 @@ export default function AppShell() {
     setAppError('');
     setAppLoading(true);
     try {
-      const nextResult = await generateAppRecommendation({ config, topic: appTopic, material: appMaterial });
+      const nextResult = await generateAppRecommendation({
+        config,
+        topic: appTopic,
+        material: appMaterial,
+        preferenceContext: buildFullContext('generate', 'app'),
+      });
       setAppResult(nextResult);
       showToast('APP推荐贴已生成');
     } catch (err) {
@@ -3140,6 +3485,7 @@ export default function AppShell() {
         tags: appResult.tags,
         instruction: value,
         sourceContext: [appTopic, appMaterial ? `素材文档：\n${appMaterial}` : ''].filter(Boolean).join('\n\n'),
+        preferenceContext: buildFullContext('revise', 'app'),
       });
       setAppResult({
         title: next.title,
@@ -3297,11 +3643,12 @@ export default function AppShell() {
     });
   }, [kbOpen]);
 
-  function buildFullContext(stage?: GuideStage) {
+  function buildFullContext(stage?: GuideStage, module: 'article' | 'app' = 'article') {
     const parts: string[] = [];
     // 1. 风格 SKILL（最高优先级，callChatJson 会自动识别并前置）
-    if (styleSkills.skillContext) {
-      parts.push(styleSkills.skillContext);
+    const moduleSkillContext = module === 'app' ? styleSkills.appSkillContext : styleSkills.skillContext;
+    if (moduleSkillContext) {
+      parts.push(moduleSkillContext);
     }
     // 2. 通用爆文方法论 SKILL（按当前环节自动筛选已启用的）
     const guideContext = guideSkills.buildContext(stage);
@@ -3352,22 +3699,31 @@ export default function AppShell() {
         rows={result.chat}
         loading={chatLoading}
         rowLoadingIndex={rowLoadingIndex}
+        scene={chatScene}
+        onSceneChange={setChatScene}
         onClose={() => setChatModalOpen(false)}
         onChange={(rows) => setResult((prev) => ({ ...prev, chat: rows }))}
         onCopy={handleCopy}
-        onRegenerate={(instruction) => handleRegenerateChat('fromPost', instruction)}
-        onContinue={(instruction) => handleRegenerateChat('continueFromEdited', instruction)}
+        onRegenerate={(instruction, scene) => handleRegenerateChat('fromPost', instruction, scene)}
+        onContinue={(instruction, scene) => handleRegenerateChat('continueFromEdited', instruction, scene)}
         onRegenerateRow={handleRegenerateChatRow}
+      />
+      <ReviewSuggestionPreview
+        data={suggestionPreview}
+        onClose={() => setSuggestionPreview(null)}
+        onApply={handleAcceptSuggestion}
       />
       <div className="mac-app-frame">
         <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
         <main className="mac-main">
-          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} />
+          <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, styleSkills.appSkill ? `${styleSkills.appSkill.name}（APP）` : '', guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} cloudState={cloudState} />
           <SettingsDrawer
             open={settingsOpen}
             config={config}
             onClose={() => setSettingsOpen(false)}
             onSave={handleSaveConfig}
+            showAccessPasswordReset={isHostedRuntime() && Boolean(appPassword)}
+            onResetAccessPassword={handleResetAccessPassword}
           />
           <ThemeDrawer
             open={themeOpen}
@@ -3460,6 +3816,10 @@ export default function AppShell() {
                 loading={appLoading}
                 revising={appRevising}
                 error={appError}
+                styleSkills={styleSkills.skills.map((s) => ({ id: s.id, name: s.name }))}
+                appStyleSkillId={styleSkills.appSkill?.id || null}
+                enabledGuideCount={guideSkills.skills.filter((s) => s.enabled).length}
+                onSelectAppStyleSkill={(id) => styleSkills.setModuleSkill('app', id)}
                 onTopicChange={(value) => {
                   setAppTopic(value);
                   setAppError('');
@@ -3518,16 +3878,19 @@ export default function AppShell() {
                 loading={chatLabLoading}
                 rowLoadingIndex={chatLabRowLoadingIndex}
                 instruction={chatLabInstruction}
+                scene={chatLabScene}
                 error={chatLabError}
                 onCountryChange={setCountry}
                 onPlatformChange={setPlatform}
                 onTitleChange={setChatLabTitle}
                 onPostChange={setChatLabPost}
                 onInstructionChange={setChatLabInstruction}
+                onSceneChange={setChatLabScene}
                 onClearPost={() => {
                   setChatLabTitle('');
                   setChatLabPost('');
                   setChatLabInstruction('');
+                  setChatLabScene('');
                   setChatLabRows([]);
                   setChatLabError('');
                 }}
@@ -3626,6 +3989,7 @@ export default function AppShell() {
                 onOpenChatModal={() => setChatModalOpen(true)}
                 onOpenCover={() => setCoverOpen(true)}
                 onReReview={handleReReview}
+                onApplySuggestion={handleApplySuggestion}
               />
             </div>
           )}

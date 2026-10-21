@@ -49,7 +49,9 @@ export function buildGuideSkillContext(skills: GuideSkill[], stage?: GuideStage)
   const parts: string[] = [];
   parts.push(`【通用爆文方法论 SKILL（已启用 ${active.length} 个）】`);
   parts.push(
-    '以下是平台通用的爆文方法论，作为创作参考依据，用于提升选题、标题和正文的爆款概率。与「当前激活风格 SKILL」冲突时，以风格 SKILL 为准。',
+    '以下是平台通用的爆文方法论，作为创作参考依据，用于提升选题、标题和正文的爆款概率。' +
+      '与「当前激活风格 SKILL」冲突时，一律以风格 SKILL 为准——尤其是正文字数、段落结构、标题模式、语气风格，' +
+      '方法论中的字数建议（如 400-800 字、550-650 字等）若与风格 SKILL 的目标字数不一致，必须严格采用风格 SKILL 的目标字数。',
   );
 
   let total = 0;
@@ -132,6 +134,11 @@ export function useGuideSkills() {
     }));
   }, []);
 
+  // 云端同步：用云端数据整体替换本地 store（与内置 skill 合并，保证版本升级后新增内置项不丢失）
+  const replaceStore = useCallback((skills: GuideSkill[]) => {
+    setStore((prev) => ({ ...prev, skills: mergeBuiltIns(skills) }));
+  }, []);
+
   return {
     skills: store.skills,
     enabledCount: store.skills.filter((s) => s.enabled).length,
@@ -142,5 +149,6 @@ export function useGuideSkills() {
     updateSkill,
     deleteSkill,
     resetBuiltIns,
+    replaceStore,
   };
 }

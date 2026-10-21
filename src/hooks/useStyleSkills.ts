@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { StyleSkill, StyleSkillStore } from '../types';
+import type { StyleSkill, StyleSkillModule, StyleSkillStore } from '../types';
 
 const STORAGE_KEY = 'ht-style-skills-v1';
 
 function generateId(): string {
   return `skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// 兼容旧数据：早期只有全局 active，没有按模块的 appliesTo
+function normalizeSkill(skill: StyleSkill): StyleSkill {
+  return {
+    ...skill,
+    appliesTo: Array.isArray(skill.appliesTo) ? skill.appliesTo : skill.active ? ['article'] : [],
+  };
 }
 
 function readStore(): StyleSkillStore {
@@ -13,7 +21,7 @@ function readStore(): StyleSkillStore {
     if (raw) {
       const parsed = JSON.parse(raw) as StyleSkillStore;
       return {
-        skills: Array.isArray(parsed.skills) ? parsed.skills : [],
+        skills: Array.isArray(parsed.skills) ? parsed.skills.map(normalizeSkill) : [],
         version: parsed.version || 1,
       };
     }
@@ -53,8 +61,12 @@ export function buildSkillContext(skill: StyleSkill | null): string {
   if (skill.styleRules.trim()) {
     parts.push(`核心风格规则：${skill.styleRules.trim()}`);
   }
-  if (skill.targetLength && skill.targetLength !== 150) {
-    parts.push(`正文目标字数：约 ${skill.targetLength} 字`);
+  // 始终注入目标字数（含默认值），确保风格 SKILL 的字数要求始终显式存在，
+  // 避免被通用方法论（400-800字等）或系统默认（150字）覆盖。
+  if (skill.targetLength) {
+    parts.push(
+      `正文目标字数：约 ${skill.targetLength} 字（最高优先级，覆盖系统默认和通用方法论中的任何字数规定，必须严格执行）`,
+    );
   }
   if (skill.requiredTags.length) {
     parts.push(`必带标签：${skill.requiredTags.join(' ')}`);
@@ -84,8 +96,10 @@ export function useStyleSkills() {
     writeStore(store);
   }, [store]);
 
-  const activeSkill = store.skills.find((s) => s.active) || null;
+  const activeSkill = store.skills.find((s) => s.appliesTo?.includes('article')) || null;
+  const appSkill = store.skills.find((s) => s.appliesTo?.includes('app')) || null;
   const skillContext = activeSkill ? buildSkillContext(activeSkill) : '';
+  const appSkillContext = appSkill ? buildSkillContext(appSkill) : '';
 
   const createSkill = useCallback((data: Partial<StyleSkill> & { name: string }) => {
     const now = new Date().toISOString();
@@ -106,6 +120,7 @@ export function useStyleSkills() {
       globalInstruction: data.globalInstruction || '',
       friendPersona: data.friendPersona || '',
       active: false,
+      appliesTo: data.appliesTo || [],
       createdAt: now,
       updatedAt: now,
     };
@@ -130,19 +145,26 @@ export function useStyleSkills() {
     }));
   }, []);
 
-  const activateSkill = useCallback((id: string) => {
+  // 给某个功能模块指定（或取消）风格 SKILL，同一模块只保留一个
+  const setModuleSkill = useCallback((module: StyleSkillModule, id: string | null) => {
     setStore((prev) => ({
       ...prev,
-      skills: prev.skills.map((s) => ({ ...s, active: s.id === id })),
+      skills: prev.skills.map((s) => {
+        const modules = (s.appliesTo || []).filter((m) => m !== module);
+        if (id && s.id === id) modules.push(module);
+        return {
+          ...s,
+          appliesTo: modules,
+          // 兼容旧的全局 active 字段：等价于「文章生成」是否生效
+          active: module === 'article' ? modules.includes('article') : s.active,
+        };
+      }),
     }));
   }, []);
 
-  const deactivateSkill = useCallback(() => {
-    setStore((prev) => ({
-      ...prev,
-      skills: prev.skills.map((s) => ({ ...s, active: false })),
-    }));
-  }, []);
+  const activateSkill = useCallback((id: string) => setModuleSkill('article', id), [setModuleSkill]);
+
+  const deactivateSkill = useCallback(() => setModuleSkill('article', null), [setModuleSkill]);
 
   const duplicateSkill = useCallback((id: string) => {
     const skill = store.skills.find((s) => s.id === id);
@@ -153,6 +175,7 @@ export function useStyleSkills() {
       id: generateId(),
       name: `${skill.name}（副本）`,
       active: false,
+      appliesTo: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -160,15 +183,24 @@ export function useStyleSkills() {
     return newSkill;
   }, [store.skills]);
 
+  // 云端同步：用云端数据整体替换本地 store
+  const replaceStore = useCallback((skills: StyleSkill[]) => {
+    setStore((prev) => ({ ...prev, skills: skills.map(normalizeSkill) }));
+  }, []);
+
   return {
     skills: store.skills,
     activeSkill,
+    appSkill,
     skillContext,
+    appSkillContext,
     createSkill,
     updateSkill,
     deleteSkill,
     activateSkill,
     deactivateSkill,
+    setModuleSkill,
     duplicateSkill,
+    replaceStore,
   };
 }

@@ -159,7 +159,7 @@ ${FACT_RULES}
 - 标题自检标准：如果你自己刷到这个标题，会不会想点进去看？如果不会，请重写。
 
 正文规则：
-- 150字左右（130-170字），第一人称，像普通用户发帖；能短则短，绝对不要为了凑字数重复解释或堆砌形容词。
+- 正文目标字数默认 150 字左右（130-170字）；若当前激活风格 SKILL 指定了目标字数，必须严格以风格 SKILL 的目标字数为准，不得自行改为 150 字。第一人称，像普通用户发帖；能短则短，绝对不要为了凑字数重复解释或堆砌形容词。
 - 必须严格三段式，用换行分成三段。
 - 第一段：现状、生活观察或疑问，用一句有画面感的话开头，让用户秒懂场景。
 - 第二段：写"我在 HelloTalk 上认识的一个外国朋友"和我聊起这件事时给的真实回应；只能出现一个外国朋友，不要出现"我又问了另一个外国人""我朋友们""几个外国人""一群外国人"。禁止写"先和外国人聊天/认识，然后再去 HelloTalk"的逻辑，这位朋友本身就是在 HelloTalk 上认识的。
@@ -168,7 +168,7 @@ ${FACT_RULES}
 - 禁止"下载""推广""点击""快去用"等硬广表达。
 - 正文不要重复标题，不要重复同一个观点，不要写成科普说明文；重点是让用户看完觉得"这个观察有意思/我也想评论/我愿意点赞"。
 - 正文是"钩子"，目的是勾起用户兴趣，让他们想继续看聊天记录了解详情；正文不要试图把一切都讲完。
-- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？是否全文只出现了一个外国朋友？是否表达成"在 HelloTalk 上认识的朋友"，而不是"和外国人聊天后再去 HelloTalk"？正文是否在150字左右、没有冗杂？如果没有，请重写。
+- 正文自检标准：点进来看后，是否有一个清晰发现、一个真实聊天支撑、一个愿意互动的结尾？是否全文只出现了一个外国朋友？是否表达成"在 HelloTalk 上认识的朋友"，而不是"和外国人聊天后再去 HelloTalk"？正文字数是否符合目标字数（默认150字左右，风格SKILL指定则以其为准）、没有冗杂？如果没有，请重写。
 
 Tag 规则：
 - 输出 5-8 个标签。
@@ -296,7 +296,9 @@ async function callChatJson<T>(
     throw new Error('缺少 LLM API Key，请在 .env.local 中配置 VITE_LLM_API_KEY。');
   }
 
-  // 智能注入：把「风格 SKILL」「通用方法论 SKILL」从上下文中识别出来并前置
+  // 智能注入：从 preferenceContext 中剥离「风格 SKILL」「通用方法论 SKILL」，
+  // 再按"低优先级在前、高优先级在后"的顺序组装，利用 LLM 近因偏差让高优先级规则真正生效。
+  // 冲突解决优先级（高 → 低）：风格 SKILL > 通用方法论 SKILL > 用户偏好 > 系统默认规则。
   let systemContent = '';
   let prefPart = options?.preferenceContext || '';
 
@@ -311,34 +313,46 @@ async function callChatJson<T>(
     };
   };
 
-  // 风格 SKILL：最高优先级
   const styleBlock = stripBlock(prefPart, '【当前激活风格 SKILL');
   prefPart = styleBlock.rest;
-  // 通用方法论 SKILL：次高优先级
   const guideBlock = stripBlock(prefPart, '【通用爆文方法论 SKILL');
   prefPart = guideBlock.rest;
 
-  // 聊天风格 SKILL（如果有，且是聊天相关生成时传入）
+  // 聊天风格 SKILL（聊天相关生成时由调用方传入）
   const chatSkillPart = options?.chatSkillContext || '';
 
-  if (styleBlock.block) {
-    systemContent += styleBlock.block;
-    systemContent += '\n\n';
-  }
-  if (guideBlock.block) {
-    systemContent += guideBlock.block;
-    systemContent += '\n\n';
-  }
-  if (chatSkillPart) {
-    systemContent += chatSkillPart;
-    systemContent += '\n\n';
-  }
-
+  // 1) 系统默认规则（最低优先级，作为基线）
   systemContent += options?.systemPrompt ?? SYSTEM_PROMPT;
 
-  // 用户偏好注入：放在后面，作为补充
+  // 2) 通用爆文方法论 SKILL（次低优先级）
+  if (guideBlock.block) {
+    systemContent += '\n\n' + guideBlock.block;
+  }
+
+  // 3) 用户偏好 & 知识库（次高优先级）
   if (prefPart.trim()) {
     systemContent += '\n\n' + prefPart.trim();
+  }
+
+  // 4) 风格 SKILL（最高优先级，紧贴 user message 放置以获得最大权重）
+  //    覆盖范围：字数、正文结构、标题模式、开头/结尾模式、语气风格、标签等写作风格类规则；
+  //    不覆盖：JSON 输出格式、事实准确性、安全合规等硬性约束。
+  if (styleBlock.block) {
+    systemContent +=
+      '\n\n【规则冲突解决声明】\n' +
+      '当写作规则出现冲突时，严格按以下优先级执行（高优先级覆盖低优先级）：\n' +
+      '1. 当前激活风格 SKILL（从你的爆文中提炼）—— 最高优先级，尤其字数、结构、语气、标题模式\n' +
+      '2. 通用爆文方法论 SKILL\n' +
+      '3. 用户偏好\n' +
+      '4. 系统默认规则\n' +
+      '注意：正文目标字数、段落结构等写作风格参数，一律以风格 SKILL 为准；' +
+      'JSON 输出格式、事实准确性、安全合规等硬性约束不受风格 SKILL 覆盖。\n\n' +
+      styleBlock.block;
+  }
+
+  // 5) 聊天风格 SKILL（聊天生成时注入，优先级同风格 SKILL）
+  if (chatSkillPart) {
+    systemContent += '\n\n' + chatSkillPart;
   }
 
   const body = {
@@ -368,6 +382,10 @@ async function callChatJson<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
+    // 访问密码失效：通知应用清除本地密码并重新弹出输入框
+    if (useProxy && response.status === 401) {
+      window.dispatchEvent(new Event('app-auth-failed'));
+    }
     throw new Error(`${useProxy ? '云端代理' : 'LLM API'} 请求失败：${response.status} ${errorText.slice(0, 240)}`);
   }
 
@@ -699,6 +717,7 @@ export async function generateAppRecommendation(params: {
   config: LlmConfig;
   topic: string;
   material?: string;
+  preferenceContext?: string;
 }): Promise<AppRecommendationResult> {
   const payload = await callChatJson<AppRecommendationResult>(
     params.config,
@@ -722,7 +741,7 @@ ${params.material?.trim() || '用户未提供素材，请按常识选择不属�
 - 标题和正文是否避开违禁词：最、神器、推荐、种草、必备、安利等？
 
 请严格输出 JSON，不要 Markdown。`,
-    { systemPrompt: APP_RECOMMENDATION_SYSTEM_PROMPT, temperature: 0.72 },
+    { systemPrompt: APP_RECOMMENDATION_SYSTEM_PROMPT, temperature: 0.72, preferenceContext: params.preferenceContext },
   );
   return normalizeAppRecommendation(payload, params.topic);
 }
@@ -1007,6 +1026,7 @@ export async function regenerateChat(params: {
   title: string;
   post: string;
   angle?: string;
+  scene?: string;
   currentChat?: ChatRow[];
   instruction?: string;
   mode: 'fromPost' | 'continueFromEdited';
@@ -1019,6 +1039,7 @@ export async function regenerateChat(params: {
 平台：${params.platform}
 目标外语：${LANGUAGE_MAP[params.country]}
 角度：${params.angle || '未提供'}
+聊天场景 / 起因（为什么会有这段聊天）：${params.scene?.trim() || '未提供，请根据正文自然引出对话'}。
 模式：${params.mode === 'fromPost' ? '根据当前正文完整重生成聊天' : '根据当前最新正文和修改建议，整份重写聊天记录，不要续写，不要追加到尾部'}
 用户对聊天记录的修改建议 / 想要方向：
 ${params.instruction?.trim() || '未提供，请根据正文和当前聊天自行优化。'}
@@ -1043,6 +1064,7 @@ ${JSON.stringify(params.currentChat || [], null, 2)}
 8. 如果用户建议和正文冲突，以用户建议为主，但不要偏离文化差异和 HelloTalk 聊天场景。
 9. 聊天记录必须是正文的"延伸"和"展开"：正文只抛出了一个钩子/引子，聊天记录要围绕同一个话题，把正文没讲透的细节、外国朋友的真实反应、双方的真实对话都展开出来。用户应该看完正文后，通过聊天记录获得更完整的画面。
 10. 聊天内容要和正文主题强相关，不能跑偏；要让人感觉"看完正文就想看这段聊天"。
+11. 如果提供了聊天场景/起因，谁先发起、第一句话怎么切入、双方关系必须与该场景一致；场景只用来交代背景，不要在对话里原样复述场景描述。
 
 请严格输出 JSON：{"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}]}`,
     { temperature: 0.65, useChatModel: true, chatSkillContext: params.chatSkillContext },
@@ -1057,6 +1079,7 @@ export async function regenerateChatRow(params: {
   title: string;
   post: string;
   angle?: string;
+  scene?: string;
   currentChat: ChatRow[];
   rowIndex: number;
   instruction?: string;
@@ -1070,6 +1093,7 @@ export async function regenerateChatRow(params: {
 平台：${params.platform}
 目标外语：${LANGUAGE_MAP[params.country]}
 角度：${params.angle || '未提供'}
+聊天场景 / 起因（为什么会有这段聊天）：${params.scene?.trim() || '未提供，请根据正文自然引出对话'}。
 用户对本行/聊天的修改建议：
 ${params.instruction?.trim() || '未提供，请根据上下文优化这一行。'}
 
@@ -1091,6 +1115,7 @@ ${JSON.stringify(currentRow || {}, null, 2)}
 3. 如果用户修改建议提到方向，以建议为主；若未提供建议，则根据正文和上下文重写得更自然。
 4. 中国用户：chinese 写中文，foreign 写目标外语翻译；外国用户：foreign 写目标外语，chinese 写中文翻译。
 5. 不新增具体数字、政策、法规；不确定内容用模糊说法。
+6. 如果提供了聊天场景/起因，这一行要符合该场景下的人物关系和语境，但不要在句子里复述场景本身。
 
 请严格输出 JSON：{"row":{"target":"中国用户或外国用户","chinese":"...","foreign":"..."}}`,
     { temperature: 0.68, useChatModel: true, chatSkillContext: params.chatSkillContext },

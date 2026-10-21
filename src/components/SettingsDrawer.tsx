@@ -16,11 +16,15 @@ export function SettingsDrawer({
   config,
   onClose,
   onSave,
+  showAccessPasswordReset,
+  onResetAccessPassword,
 }: {
   open: boolean;
   config: LlmConfig;
   onClose: () => void;
   onSave: (config: LlmConfig) => void;
+  showAccessPasswordReset?: boolean;
+  onResetAccessPassword?: () => void;
 }) {
   const matchedBase = baseUrlOptions.find((option) => option.value === config.baseUrl);
   const [draft, setDraft] = useState(config);
@@ -169,6 +173,22 @@ export function SettingsDrawer({
               />
             </label>
           </div>
+
+          {showAccessPasswordReset && onResetAccessPassword && (
+            <div className="rounded-[20px] bg-white/70 p-4">
+              <p className="mb-1 text-sm font-bold text-ink">访问密码</p>
+              <p className="n-muted mb-3 text-xs">
+                密码保存在当前浏览器。换密码或忘记密码时，点下面按钮重新输入。
+              </p>
+              <button
+                type="button"
+                onClick={onResetAccessPassword}
+                className="n-btn w-full justify-center py-2"
+              >
+                重新输入访问密码
+              </button>
+            </div>
+          )}
 
           <button
             type="button"
