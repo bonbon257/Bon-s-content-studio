@@ -366,7 +366,7 @@ export function StyleSkillDrawer({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="flex-1 overflow-y-auto px-6 pt-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
           {tab === 'post' && view === 'list' && (
             <SkillListView
               skills={skills.map((s) => ({
@@ -854,7 +854,7 @@ function PostSkillEditor({
         </section>
       )}
 
-      <div className="sticky bottom-0 -mx-6 -mb-5 mt-6 border-t border-[#E8E4DE] bg-[#FAF7F2] px-6 py-4">
+      <div className="sticky bottom-0 -mx-6 -mb-[calc(1.25rem+env(safe-area-inset-bottom))] mt-6 border-t border-[#E8E4DE] bg-[#FAF7F2] px-6 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={onCancel} className="mac-secondary-btn">取消</button>
           <button type="button" onClick={onSave} disabled={!canSave} className="mac-primary-btn disabled:opacity-50">
@@ -967,7 +967,7 @@ function ChatSkillEditor({
         </section>
       )}
 
-      <div className="sticky bottom-0 -mx-6 -mb-5 mt-6 border-t border-[#E8E4DE] bg-[#FAF7F2] px-6 py-4">
+      <div className="sticky bottom-0 -mx-6 -mb-[calc(1.25rem+env(safe-area-inset-bottom))] mt-6 border-t border-[#E8E4DE] bg-[#FAF7F2] px-6 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={onCancel} className="mac-secondary-btn">取消</button>
           <button type="button" onClick={onSave} disabled={!canSave} className="mac-primary-btn disabled:opacity-50">

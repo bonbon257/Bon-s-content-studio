@@ -61,7 +61,7 @@ export function ThemeDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 overflow-y-auto px-8 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
           <div className="space-y-7">
             <section>
               <p className="mb-3 text-sm font-bold text-ink">预设主题</p>

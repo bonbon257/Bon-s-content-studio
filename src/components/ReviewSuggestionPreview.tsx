@@ -97,7 +97,7 @@ export function ReviewSuggestionPreview({
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-[#E8E4DE] px-6 py-4">
+        <footer className="flex items-center justify-end gap-2 border-t border-[#E8E4DE] px-6 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <button type="button" onClick={onClose} className="mac-mini-btn">
             放弃
           </button>

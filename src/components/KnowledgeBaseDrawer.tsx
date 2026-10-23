@@ -112,7 +112,7 @@ export function KnowledgeBaseDrawer({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-6 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           {/* Stats */}
           <div className="mb-4 flex gap-3">
             <div className="flex-1 rounded-xl bg-[#F5F4FA] p-3 text-center">

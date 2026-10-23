@@ -64,7 +64,7 @@ export function SettingsDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 overflow-y-auto px-8 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
           <div className="space-y-7">
           <div className="rounded-[20px] bg-white/70 p-4">
             <p className="mb-4 text-sm font-bold text-ink">正文 / 角度 / 资料检索模型</p>
