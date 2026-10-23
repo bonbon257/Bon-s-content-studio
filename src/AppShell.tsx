@@ -105,7 +105,7 @@ const platforms: Platform[] = ['小红书', '抖音'];
 const VIRAL_LIBRARY_KEY = 'ht-viral-examples-library';
 const APP_PASSWORD_KEY = 'ht-app-password';
 
-const tabs: { key: Exclude<AppTab, 'history'>; label: string; icon: typeof PenLine }[] = [
+const tabs: { key: AppTab; label: string; icon: typeof PenLine }[] = [
   { key: 'home', label: '工作台', icon: Home },
   { key: 'article', label: '文章改写', icon: PenLine },
   { key: 'topic', label: '话题创作', icon: Sparkles },
@@ -113,6 +113,7 @@ const tabs: { key: Exclude<AppTab, 'history'>; label: string; icon: typeof PenLi
   { key: 'chat', label: '聊天生成', icon: MessageCircle },
   { key: 'app', label: 'APP推荐', icon: BookOpen },
   { key: 'document', label: '按文档生成', icon: FileText },
+  { key: 'history', label: '历史', icon: History },
 ];
 
 const angleColors = ['#F5D5D5', '#F5E6D0', '#E0D5F5', '#D5F0E0', '#D5E8F5'];
@@ -173,16 +174,11 @@ function Toast({ message }: { message: string }) {
 function SideNav({
   active,
   onTabChange,
-  onHistory,
 }: {
   active: AppTab;
-  onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
-  onHistory: () => void;
+  onTabChange: (tab: AppTab) => void;
 }) {
-  const items = [
-    ...tabs,
-    { key: 'history' as const, label: '历史', icon: History },
-  ];
+  const items = tabs;
   return (
     <aside className="mac-side-nav">
       <div className="mac-logo-bubble">
@@ -197,7 +193,7 @@ function SideNav({
               key={item.key}
               type="button"
               title={item.label}
-              onClick={() => (item.key === 'history' ? onHistory() : onTabChange(item.key))}
+              onClick={() => onTabChange(item.key)}
               className={`mac-side-icon ${selected ? 'is-active' : ''}`}
             >
               <Icon className="h-5 w-5" />
@@ -225,7 +221,7 @@ function TopBar({
   cloudState,
 }: {
   active: AppTab;
-  onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
+  onTabChange: (tab: AppTab) => void;
   onSettings: () => void;
   onTheme: () => void;
   onPreferences: () => void;
@@ -2683,39 +2679,6 @@ function DocumentGeneratorView({
   );
 }
 
-function MobileBottomNav({
-  active,
-  onTabChange,
-  onHistory,
-}: {
-  active: AppTab;
-  onTabChange: (tab: Exclude<AppTab, 'history'>) => void;
-  onHistory: () => void;
-}) {
-  const items = [
-    ...tabs,
-    { key: 'history' as const, label: '历史', icon: History },
-  ];
-  return (
-    <nav className="mac-mobile-nav">
-      {items.map((item) => {
-        const Icon = item.icon;
-        return (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => (item.key === 'history' ? onHistory() : onTabChange(item.key))}
-            className={active === item.key ? 'is-active' : ''}
-          >
-            <Icon className="h-5 w-5" />
-            <span>{item.label}</span>
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
-
 export default function AppShell() {
   const [active, setActive] = useState<AppTab>('home');
   const [article, setArticle] = useState('');
@@ -2939,7 +2902,7 @@ export default function AppShell() {
     showToast('已加入你的自定义角度');
   }
 
-  function handleTabChange(tab: Exclude<AppTab, 'history'>) {
+  function handleTabChange(tab: AppTab) {
     setActive(tab);
     if (tab === 'article' || tab === 'topic') resetWork();
   }
@@ -3714,7 +3677,7 @@ export default function AppShell() {
         onApply={handleAcceptSuggestion}
       />
       <div className="mac-app-frame">
-        <SideNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
+        <SideNav active={active} onTabChange={handleTabChange} />
         <main className="mac-main">
           <TopBar active={active} onTabChange={handleTabChange} onSettings={() => setSettingsOpen(true)} onTheme={openThemeDrawer} onPreferences={() => setPreferencesOpen(true)} onStyleSkill={() => setStyleSkillOpen(true)} onCover={() => setCoverOpen(true)} onKb={() => setKbOpen(true)} activeSkillName={[styleSkills.activeSkill?.name, styleSkills.appSkill ? `${styleSkills.appSkill.name}（APP）` : '', guideSkills.enabledCount ? `通用方法论×${guideSkills.enabledCount}` : ''].filter(Boolean).join(' + ') || undefined} cloudState={cloudState} />
           <SettingsDrawer
@@ -3995,7 +3958,6 @@ export default function AppShell() {
           )}
         </main>
       </div>
-      <MobileBottomNav active={active} onTabChange={handleTabChange} onHistory={() => setActive('history')} />
     </div>
   );
 }
