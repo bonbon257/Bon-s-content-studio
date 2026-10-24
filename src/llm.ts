@@ -1019,6 +1019,73 @@ function normalizeChatRows(rows?: ChatRow[]): ChatRow[] {
     .slice(0, 12);
 }
 
+export async function planChatScene(params: {
+  config: LlmConfig;
+  country: Country;
+  platform: Platform;
+  title: string;
+  post: string;
+  angle?: string;
+  direction?: string;
+  chatSkillContext?: string;
+}): Promise<string> {
+  const payload = await callChatJson<{
+    starter?: string;
+    relationship?: string;
+    trigger?: string;
+    outline?: string[];
+    emotion?: string;
+    openingForeign?: string;
+    openingChinese?: string;
+  }>(
+    getChatConfig(params.config),
+    `请先只规划这段聊天记录的"场景设定"，不要生成聊天正文。
+
+国家：${params.country}
+平台：${params.platform}
+目标外语：${LANGUAGE_MAP[params.country]}
+角度：${params.angle || '未提供'}
+用户想要的方向：${params.direction?.trim() || '未提供'}
+
+标题：
+${params.title}
+
+正文：
+${params.post}
+
+要求：
+1. starter：这段聊天由谁先发起（中国用户 / 外国用户），并说明是从哪里发起的（动态评论、私信、回应某条留言等）。
+2. relationship：双方关系和熟悉程度。
+3. trigger：为什么会开始这段聊天，要具体到正文里的哪个点被对方看到或回应。
+4. outline：3-4 个对话推进节点，每个节点一句话，写清楚这一轮聊的是什么、谁主动、情绪怎么变化。
+5. emotion：整段聊天的情绪走向（例如：好奇→被冒犯→解释→理解→轻松）。
+6. openingForeign：外国用户或中国用户的第一句话，用目标外语写，必须自然口语化，符合场景。
+7. openingChinese：openingForeign 的中文对照。
+8. 场景必须与正文主题强相关，是正文的延伸，不要脱离正文另起话题。
+9. 不要新增具体数字、政策、法规。
+
+请严格输出 JSON：{"starter":"...","relationship":"...","trigger":"...","outline":["..."],"emotion":"...","openingForeign":"...","openingChinese":"..."}`,
+    { temperature: 0.6, useChatModel: true, chatSkillContext: params.chatSkillContext },
+  );
+
+  const outline = (Array.isArray(payload?.outline) ? payload.outline : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  const lines = [
+    `谁先发起：${String(payload?.starter || '').trim()}`,
+    `双方关系：${String(payload?.relationship || '').trim()}`,
+    `起因：${String(payload?.trigger || '').trim()}`,
+    outline.length ? `对话主线：\n${outline.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '',
+    `情绪走向：${String(payload?.emotion || '').trim()}`,
+    `开场第一句：${String(payload?.openingForeign || '').trim()}`,
+    `开场中文：${String(payload?.openingChinese || '').trim()}`,
+  ].filter(Boolean);
+
+  return lines.join('\n');
+}
+
 export async function regenerateChat(params: {
   config: LlmConfig;
   country: Country;

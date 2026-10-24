@@ -68,6 +68,7 @@ import {
   generateFromTopic,
   LANGUAGE_MAP,
   loadConfig,
+  planChatScene,
   polishText,
   regenerateChat,
   regenerateChatRow,
@@ -1487,7 +1488,9 @@ function ChatResult({
   loading,
   rowLoadingIndex,
   scene,
+  sceneLoading,
   onSceneChange,
+  onPlanScene,
   onChange,
   onCopy,
   onRegenerate,
@@ -1498,7 +1501,9 @@ function ChatResult({
   loading: boolean;
   rowLoadingIndex: number | null;
   scene: string;
+  sceneLoading?: boolean;
   onSceneChange: (value: string) => void;
+  onPlanScene?: () => Promise<boolean>;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
   onRegenerate: (instruction?: string, scene?: string) => Promise<boolean>;
@@ -1639,21 +1644,39 @@ function ChatResult({
         </>
       )}
       <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
-        <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <label className="mac-label !mb-0">聊天场景 / 起因（可选）</label>
-          {scene.trim() && (
-            <button type="button" onClick={() => onSceneChange('')} className="mac-clear-btn">
-              一键清空
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {onPlanScene && (
+              <button
+                type="button"
+                onClick={() => onPlanScene()}
+                disabled={loading || sceneLoading}
+                className="mac-mini-btn"
+              >
+                {sceneLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {scene.trim() ? '重新规划场景' : '先出场景设定'}
+              </button>
+            )}
+            {scene.trim() && (
+              <button type="button" onClick={() => onSceneChange('')} className="mac-clear-btn">
+                一键清空
+              </button>
+            )}
+          </div>
         </div>
         <textarea
           value={scene}
           onChange={(event) => onSceneChange(event.target.value)}
-          rows={2}
-          placeholder="例如：我在动态里吐槽被外国朋友追问收入，他看到后私信我解释为什么这么问；或者：他先在我的动态下留言，我才开始私聊。"
+          rows={scene.trim() ? 8 : 2}
+          placeholder="例如：我在动态里吐槽被外国朋友追问收入，他看到后私信我解释为什么这么问；或者：他先在我的动态下留言，我才开始私聊。也可以点「先出场景设定」，让 AI 先给出场景和对话主线，确认后再生成聊天记录。"
           className="mac-textarea !min-h-[72px] !bg-white"
         />
+        {scene.trim() && (
+          <p className="mt-2 text-xs leading-5 text-[#6B6B6B]">
+            场景可直接修改。确认后点上方「生成聊天记录」，会按这个场景生成对话。
+          </p>
+        )}
       </div>
       <div className="mt-4 rounded-[20px] bg-[#F5F0E8] p-4">
         <div className="mb-2 flex items-center justify-between gap-3">
@@ -1694,7 +1717,9 @@ function ChatModal({
   loading,
   rowLoadingIndex,
   scene,
+  sceneLoading,
   onSceneChange,
+  onPlanScene,
   onClose,
   onChange,
   onCopy,
@@ -1707,7 +1732,9 @@ function ChatModal({
   loading: boolean;
   rowLoadingIndex: number | null;
   scene: string;
+  sceneLoading?: boolean;
   onSceneChange: (value: string) => void;
+  onPlanScene?: () => Promise<boolean>;
   onClose: () => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
@@ -1747,7 +1774,9 @@ function ChatModal({
             loading={loading}
             rowLoadingIndex={rowLoadingIndex}
             scene={scene}
+            sceneLoading={sceneLoading}
             onSceneChange={onSceneChange}
+            onPlanScene={onPlanScene}
             onChange={onChange}
             onCopy={onCopy}
             onRegenerate={onRegenerate}
@@ -2181,6 +2210,7 @@ function ChatLabView({
   rowLoadingIndex,
   instruction,
   scene,
+  sceneLoading,
   error,
   onCountryChange,
   onPlatformChange,
@@ -2188,6 +2218,7 @@ function ChatLabView({
   onPostChange,
   onInstructionChange,
   onSceneChange,
+  onPlanScene,
   onClearPost,
   onChange,
   onCopy,
@@ -2204,6 +2235,7 @@ function ChatLabView({
   rowLoadingIndex: number | null;
   instruction: string;
   scene: string;
+  sceneLoading: boolean;
   error: string;
   onCountryChange: (value: Country) => void;
   onPlatformChange: (value: Platform) => void;
@@ -2211,6 +2243,7 @@ function ChatLabView({
   onPostChange: (value: string) => void;
   onInstructionChange: (value: string) => void;
   onSceneChange: (value: string) => void;
+  onPlanScene: () => Promise<boolean>;
   onClearPost: () => void;
   onChange: (rows: ChatRow[]) => void;
   onCopy: (text: string) => void;
@@ -2236,9 +2269,9 @@ function ChatLabView({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="mac-kicker">Chat lab</p>
-              <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">直接为正文生成聊天记录</h1>
+              <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">先定场景，再生成聊天记录</h1>
               <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
-                左侧粘贴标题、正文和修改建议，右侧编辑聊天表格。退出文章改写流程后，也能直接补生成聊天记录。
+                左侧粘贴标题和正文，点「先出场景设定」会先给出谁发起、双方关系、起因、对话主线和开场第一句；你确认或改完场景后，再生成聊天表格。
               </p>
             </div>
             <MessageCircle className="h-10 w-10 shrink-0 text-[#F0B8B8]" />
@@ -2297,11 +2330,20 @@ function ChatLabView({
               <textarea
                 value={scene}
                 onChange={(event) => onSceneChange(event.target.value)}
-                rows={2}
+                rows={scene.trim() ? 8 : 2}
                 placeholder="例如：我在动态里吐槽被外国朋友追问收入，他看到后私信我解释为什么这么问。写明为什么会有这段聊天，生成的开场会更自然。"
                 className="mac-textarea !min-h-[72px]"
               />
             </label>
+            <button
+              type="button"
+              onClick={() => onPlanScene()}
+              disabled={loading || rowLoadingIndex !== null || sceneLoading}
+              className="mac-mini-btn w-full"
+            >
+              {sceneLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {sceneLoading ? '正在规划场景...' : scene.trim() ? '重新规划场景设定' : '先出场景设定（不直接生成聊天）'}
+            </button>
             <label>
               <span className="mac-label">想要的聊天方向 / 修改建议（可选）</span>
               <textarea
@@ -2707,6 +2749,7 @@ export default function AppShell() {
   const [contentResearchError, setContentResearchError] = useState('');
   const [chatModalOpen, setChatModalOpen] = useState(false);
   const [chatScene, setChatScene] = useState('');
+  const [chatSceneLoading, setChatSceneLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
@@ -2735,6 +2778,7 @@ export default function AppShell() {
   const [chatLabPost, setChatLabPost] = useState('');
   const [chatLabInstruction, setChatLabInstruction] = useState('');
   const [chatLabScene, setChatLabScene] = useState('');
+  const [chatLabSceneLoading, setChatLabSceneLoading] = useState(false);
   const [chatLabRows, setChatLabRows] = useState<ChatRow[]>([]);
   const [chatLabLoading, setChatLabLoading] = useState(false);
   const [chatLabRowLoadingIndex, setChatLabRowLoadingIndex] = useState<number | null>(null);
@@ -3276,6 +3320,34 @@ export default function AppShell() {
     }
   }
 
+  async function handlePlanChatScene() {
+    if (!result.post.trim()) {
+      showToast('请先生成或填写正文');
+      return false;
+    }
+    setChatSceneLoading(true);
+    try {
+      const scene = await planChatScene({
+        config,
+        country,
+        platform,
+        title: result.title,
+        post: result.post,
+        angle: selectedAngle?.title,
+        chatSkillContext: chatSkills.skillContext,
+      });
+      if (!scene.trim()) throw new Error('场景规划结果为空');
+      setChatScene(scene);
+      showToast('已生成场景设定，确认或修改后再点生成聊天记录');
+      return true;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '场景规划失败');
+      return false;
+    } finally {
+      setChatSceneLoading(false);
+    }
+  }
+
   async function handleResearchGeneratedContent() {
     if (!result.title.trim() && !result.post.trim()) {
       showToast('请先生成或填写正文');
@@ -3334,6 +3406,37 @@ export default function AppShell() {
       return false;
     } finally {
       setRowLoadingIndex(null);
+    }
+  }
+
+  async function handleChatLabPlanScene() {
+    if (!chatLabPost.trim()) {
+      setChatLabError('请先粘贴正文。');
+      showToast('请先粘贴正文');
+      return false;
+    }
+    setChatLabSceneLoading(true);
+    try {
+      const scene = await planChatScene({
+        config,
+        country,
+        platform,
+        title: chatLabTitle,
+        post: chatLabPost,
+        direction: chatLabInstruction,
+        chatSkillContext: chatSkills.skillContext,
+      });
+      if (!scene.trim()) throw new Error('场景规划结果为空');
+      setChatLabScene(scene);
+      showToast('已生成场景设定，确认或修改后再点生成聊天记录');
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '场景规划失败';
+      setChatLabError(message);
+      showToast(message);
+      return false;
+    } finally {
+      setChatLabSceneLoading(false);
     }
   }
 
@@ -3663,7 +3766,9 @@ export default function AppShell() {
         loading={chatLoading}
         rowLoadingIndex={rowLoadingIndex}
         scene={chatScene}
+        sceneLoading={chatSceneLoading}
         onSceneChange={setChatScene}
+        onPlanScene={handlePlanChatScene}
         onClose={() => setChatModalOpen(false)}
         onChange={(rows) => setResult((prev) => ({ ...prev, chat: rows }))}
         onCopy={handleCopy}
@@ -3842,6 +3947,7 @@ export default function AppShell() {
                 rowLoadingIndex={chatLabRowLoadingIndex}
                 instruction={chatLabInstruction}
                 scene={chatLabScene}
+                sceneLoading={chatLabSceneLoading}
                 error={chatLabError}
                 onCountryChange={setCountry}
                 onPlatformChange={setPlatform}
@@ -3849,6 +3955,7 @@ export default function AppShell() {
                 onPostChange={setChatLabPost}
                 onInstructionChange={setChatLabInstruction}
                 onSceneChange={setChatLabScene}
+                onPlanScene={handleChatLabPlanScene}
                 onClearPost={() => {
                   setChatLabTitle('');
                   setChatLabPost('');
