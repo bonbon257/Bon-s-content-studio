@@ -1007,6 +1007,38 @@ ${params.post}
   return { title: String(payload?.title || params.currentTitle).trim() };
 }
 
+export async function generateCoverText(params: {
+  config: LlmConfig;
+  title: string;
+  post: string;
+  platform: Platform;
+  preferenceContext?: string;
+}): Promise<string> {
+  const payload = await callChatJson<{ coverText: string }>(
+    params.config,
+    `请为这篇小红书/抖音内容生成「封面文案」（封面图上的大字）。
+
+核心要求：
+1. 封面文案必须和标题完全不同，不能只是换几个字或调整语序。
+2. 封面文案要与正文主题强相关，是正文的延伸或另一个切入点，不能跑偏。
+3. 封面文案要足够猎奇、有冲击力，让人一眼就想点进来。本质和标题一样，是点击率的关键。
+4. 优先用疑问句引发思考和好奇（例如"为什么外国人..."、"你真的以为...？"）；如果反问/悬念更抓眼球，也可以用。
+5. 长度 6-16 个字优先，要短、要狠、要留钩子，不要平淡无奇。
+6. 不要和标题重复任何一个完整短语。
+7. 不要营销腔、不要夸张到虚假、不要AI味，要像真人会写的封面字。
+
+当前标题（封面文案必须避开这个表达）：
+${params.title}
+
+正文：
+${params.post}
+
+请严格输出 JSON：{"coverText":"封面文案"}`,
+    { systemPrompt: SYSTEM_PROMPT, temperature: 0.9, preferenceContext: params.preferenceContext },
+  );
+  return String(payload?.coverText || '').trim();
+}
+
 function normalizeChatRows(rows?: ChatRow[]): ChatRow[] {
   if (!Array.isArray(rows)) return [];
   return rows

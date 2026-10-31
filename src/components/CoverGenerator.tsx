@@ -1,4 +1,4 @@
-import { Download, ImageIcon, LayoutTemplate, RefreshCw, Type } from 'lucide-react';
+import { Download, ImageIcon, LayoutTemplate, Loader2, RefreshCw, Sparkles, Type } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const PRESETS = [
@@ -529,9 +529,11 @@ function roundRect(
 export function CoverGenerator({
   initialTitle = '',
   onClose,
+  onGenerateCoverText,
 }: {
   initialTitle?: string;
   onClose?: () => void;
+  onGenerateCoverText?: () => Promise<string>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [style, setStyle] = useState<CoverStyle>('bigtext');
@@ -544,6 +546,18 @@ export function CoverGenerator({
   const [emoji, setEmoji] = useState('💡');
   const [presetIndex, setPresetIndex] = useState(0);
   const [fontSize, setFontSize] = useState(72);
+  const [coverTextLoading, setCoverTextLoading] = useState(false);
+
+  async function handleGenerateCoverText() {
+    if (!onGenerateCoverText) return;
+    setCoverTextLoading(true);
+    try {
+      const text = await onGenerateCoverText();
+      if (text) setTitle(text);
+    } finally {
+      setCoverTextLoading(false);
+    }
+  }
 
   const preset = PRESETS[presetIndex];
 
@@ -672,15 +686,28 @@ export function CoverGenerator({
 
           {/* Title */}
           <section>
-            <label className="mb-2 flex items-center gap-1.5 text-sm font-bold text-[#1A1A1A]">
-              <Type className="h-4 w-4 text-[#6B6B6B]" />
-              {style === 'qa' ? '问题' : style === 'list' ? '列表标题' : '封面标题'}
-            </label>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <label className="flex items-center gap-1.5 text-sm font-bold text-[#1A1A1A]">
+                <Type className="h-4 w-4 text-[#6B6B6B]" />
+                {style === 'qa' ? '问题' : style === 'list' ? '列表标题' : '封面标题'}
+              </label>
+              {onGenerateCoverText && (
+                <button
+                  type="button"
+                  onClick={handleGenerateCoverText}
+                  disabled={coverTextLoading}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#F0B8B8] px-3 py-1 text-xs font-bold text-white transition hover:brightness-95 disabled:opacity-60"
+                >
+                  {coverTextLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {coverTextLoading ? '生成中' : '生成封面文案'}
+                </button>
+              )}
+            </div>
             <textarea
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               rows={3}
-              placeholder="输入标题"
+              placeholder="封面文字会显示在封面上，建议与标题不同、更猎奇"
               className="mac-textarea !min-h-[80px]"
             />
           </section>

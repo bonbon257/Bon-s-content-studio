@@ -63,6 +63,7 @@ import {
   analyzeTopic,
   COUNTRIES,
   generateAppRecommendation,
+  generateCoverText,
   generateFromArticle,
   generateFromDocument,
   generateFromTopic,
@@ -903,6 +904,8 @@ function OutputResult({
   onOpenCover,
   onReReview,
   onApplySuggestion,
+  onCreateFeishuDoc,
+  feishuDocLoading,
 }: {
   result: GenerationResult;
   factCheckStatuses: Record<number, FactCheckStatus>;
@@ -937,6 +940,8 @@ function OutputResult({
   onOpenCover: () => void;
   onReReview: () => void;
   onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
+  onCreateFeishuDoc: () => Promise<string | null>;
+  feishuDocLoading: boolean;
 }) {
   const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean);
   const tagText = cleanTags.map((tag) => `#${tag}`).join(' ');
@@ -1000,6 +1005,18 @@ function OutputResult({
               className="mac-mini-btn"
             >
               <ExternalLink className="h-3.5 w-3.5" /> 句易网检测
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const url = await onCreateFeishuDoc();
+                if (url) window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              className="mac-mini-btn"
+              disabled={feishuDocLoading}
+            >
+              {feishuDocLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+              {feishuDocLoading ? '生成中...' : '生成飞书文档'}
             </button>
             <button type="button" onClick={() => onPolishField('post')} className="mac-mini-btn" disabled={polishingField !== null}>
               {polishingField === 'post' ? '润色中...' : '✨ 润色'}
@@ -1835,6 +1852,8 @@ function DynamicCard({
   onOpenCover,
   onReReview,
   onApplySuggestion,
+  onCreateFeishuDoc,
+  feishuDocLoading,
 }: {
   stage: Stage;
   angles: Angle[];
@@ -1881,6 +1900,8 @@ function DynamicCard({
   onOpenCover: () => void;
   onReReview: () => void;
   onApplySuggestion: (suggestion: string, skillName: string) => Promise<void>;
+  onCreateFeishuDoc: () => Promise<string | null>;
+  feishuDocLoading: boolean;
 }) {
   return (
     <section className="mac-card mac-dynamic-card">
@@ -1932,6 +1953,8 @@ function DynamicCard({
             onOpenCover={onOpenCover}
             onReReview={onReReview}
             onApplySuggestion={onApplySuggestion}
+            onCreateFeishuDoc={onCreateFeishuDoc}
+            feishuDocLoading={feishuDocLoading}
           />
         )}
       </AnimatePresence>
@@ -2738,6 +2761,7 @@ export default function AppShell() {
   const [loading, setLoading] = useState<'analyze' | 'generate' | null>(null);
   const [polishingField, setPolishingField] = useState<'title' | 'post' | null>(null);
   const [titleRegenerating, setTitleRegenerating] = useState(false);
+  const [feishuDocLoading, setFeishuDocLoading] = useState(false);
   const [revisingContent, setRevisingContent] = useState(false);
   const [polishChanges, setPolishChanges] = useState<string[]>([]);
   const [postHistory, setPostHistory] = useState<string[]>([]);
@@ -3188,6 +3212,66 @@ export default function AppShell() {
       showToast('已恢复正文上一版');
       return prev.slice(0, -1);
     });
+  }
+
+  async function handleGenerateCoverText(): Promise<string> {
+    if (!result.post.trim()) {
+      showToast('请先生成内容');
+      return '';
+    }
+    try {
+      const coverText = await generateCoverText({
+        config,
+        title: result.title,
+        post: result.post,
+        platform,
+        preferenceContext: buildFullContext('title'),
+      });
+      if (!coverText.trim()) throw new Error('封面文案生成结果为空');
+      showToast('已生成封面文案，可继续编辑');
+      return coverText;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '封面文案生成失败');
+      return '';
+    }
+  }
+
+  async function handleCreateFeishuDoc(): Promise<string | null> {
+    if (!result.post.trim()) {
+      showToast('请先生成内容');
+      return null;
+    }
+    setFeishuDocLoading(true);
+    try {
+      const cleanTags = (result.tags || []).map(cleanTag).filter(Boolean).map((t) => `#${t}`);
+      const resp = await fetch('/api/feishu-doc', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-app-password': localStorage.getItem('ht-app-password') || '',
+        },
+        body: JSON.stringify({
+          title: result.title || '未命名文档',
+          post: result.post,
+          tags: cleanTags,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.url) {
+        throw new Error(data.error || '生成飞书文档失败');
+      }
+      if (data.warning) {
+        showToast(`文档已创建：${data.warning}`);
+      } else {
+        showToast('飞书文档已生成，正在打开...');
+      }
+      return data.url as string;
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '生成飞书文档失败');
+      return null;
+    } finally {
+      setFeishuDocLoading(false);
+    }
   }
 
   async function handleRegenerateTitle() {
@@ -3842,6 +3926,7 @@ export default function AppShell() {
             <div className="fixed inset-0 z-50 bg-[#FAF7F2]">
               <CoverGenerator
                 initialTitle={result.title}
+                onGenerateCoverText={handleGenerateCoverText}
                 onClose={() => setCoverOpen(false)}
               />
             </div>
@@ -4060,6 +4145,8 @@ export default function AppShell() {
                 onOpenCover={() => setCoverOpen(true)}
                 onReReview={handleReReview}
                 onApplySuggestion={handleApplySuggestion}
+                onCreateFeishuDoc={handleCreateFeishuDoc}
+                feishuDocLoading={feishuDocLoading}
               />
             </div>
           )}
