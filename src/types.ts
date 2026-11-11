@@ -13,16 +13,122 @@ export type Country =
   | '马来西亚'
   | '新加坡';
 
-export type Platform = '小红书' | '抖音';
+export type Platform = '小红书' | '抖音' | '公众号';
 
 export type Scene = 'article' | 'topic';
 
 export type AppView = 'create' | 'history' | 'research';
 
+// ===================== 通用内容种草生成器 =====================
+// 底座从「文化差异改写器」抽象成可扩展的种草生成器：
+// 平台 × 赛道 × 入口方式 三个维度都由配置驱动，不再写死在代码里。
+
+// 创作入口：
+// - idea：先给一个想法/产品，再产出选题方向与内容
+// - reference：先给一篇别人的爆款，拆解后生成去重新文 / 可复用模板
+export type EntryMode = 'idea' | 'reference';
+
+export type VerticalId = string;
+
+// 参考样例的使用方式：
+// - structure-only：只学结构、节奏、开头钩子，内容必须基于 brief 重写
+// - rewrite-allowed：允许适度沿用参考样例的表达方式
+export type ReferenceMode = 'structure-only' | 'rewrite-allowed';
+
+export interface BriefField {
+  key: string;
+  label: string;
+  placeholder: string;
+  multiline?: boolean;
+}
+
+// 用户创作简报：一个 idea + 参考样例 + 自己的补充信息
+export interface Brief {
+  entryMode: EntryMode;
+  vertical: VerticalId;
+  idea: string;
+  references: string[];
+  referenceMode: ReferenceMode;
+  myNotes: string;
+  // 赛道结构化字段，键对应 VerticalConfig.briefFields[].key
+  fields: Record<string, string>;
+}
+
+export interface VerticalConfig {
+  id: VerticalId;
+  name: string;
+  tagline: string;
+  // 是否为内置赛道（内置不可删除）
+  builtIn?: boolean;
+  // 赛道专属输入项（如目的地、天数、预算）
+  briefFields: BriefField[];
+  // 切换赛道时参考模式的默认值
+  referenceModeDefault: ReferenceMode;
+  // 角度分析规则
+  angleStrategy: string;
+  // 正文写法规则
+  bodyGuidance: string;
+  // 标签规则
+  tagGuidance: string;
+  // 质检时的赛道专项检查项
+  reviewRubric: string;
+  // 是否沿用「国家 / 目标外语」维度（仅文化差异赛道需要）
+  useCountryDimension: boolean;
+}
+
+// 平台写法配置：同一篇内容发小红书/抖音/公众号，规则完全不同
+export interface PlatformConfig {
+  id: Platform;
+  name: string;
+  titleRule: string;
+  bodyRule: string;
+  tagRule: string;
+  // 平台特有的格式要求（是否分段、是否用 emoji、是否带话题等）
+  formatRule: string;
+}
+
+// 参考爆文拆解结果
+export interface ReferenceDeconstruction {
+  // 标题公式
+  titleFormula: string;
+  // 开头钩子
+  openingHook: string;
+  // 段落结构骨架
+  structure: string[];
+  // 情绪触发点
+  emotionalTriggers: string[];
+  // 语气与表达风格
+  toneStyle: string;
+  // 结尾 / 互动引导方式
+  cta: string;
+  // 可复用的写作模板
+  reusableTemplate: string;
+  // 去重改写建议
+  dedupeTips: string[];
+}
+
+export interface ContentTemplate {
+  id: string;
+  name: string;
+  vertical: VerticalId;
+  platform: Platform;
+  deconstruction: ReferenceDeconstruction;
+  createdAt: string;
+}
+
+export interface TemplateStore {
+  templates: ContentTemplate[];
+  version: number;
+}
+
 export interface Angle {
   id: number;
   title: string;
   description: string;
+  // 以下为「情绪种草」增强字段（通用入口产出，旧流程可以不填）
+  audience?: string;
+  emotionHook?: string;
+  whyViral?: string;
 }
 
 export interface ChatRow {

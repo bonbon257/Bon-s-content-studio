@@ -1,6 +1,7 @@
 import type {
   Angle,
   AppRecommendationResult,
+  Brief,
   ChatRow,
   ContentReviewReport,
   ContentRevisionResult,
@@ -12,10 +13,14 @@ import type {
   LlmConfig,
   Platform,
   PolishResult,
+  ReferenceDeconstruction,
+  ReferenceMode,
   ResearchResult,
   UserPreferences,
+  VerticalConfig,
 } from './types';
 import { buildPreferenceContext } from './hooks/usePreferences';
+import { formatPlatformGuide } from './config/platforms';
 
 export const COUNTRIES: Country[] = [
   '美国',
@@ -195,6 +200,21 @@ Tag 规则：
 输出必须是严格 JSON，不要 Markdown，不要代码块。
 内容生成统一 JSON 结构：
 {"title":"...","post":"三段正文，段落之间用\\n\\n分隔","tags":["#找外国人聊天","#认识外国人","#文化差异","#跨文化交流","#留学生活"],"chat":[{"target":"中国用户","chinese":"...","foreign":"..."}],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`;
+
+// 赛道化「从 idea 创作」的通用系统提示：不再预设 HelloTalk / 三段式，具体写法由赛道配置注入
+const BRIEF_SYSTEM_PROMPT = `你是小红书/抖音的原创内容策划与写作引擎。
+
+写作原则：
+- 像真实普通用户分享，不像广告、科普稿、新闻稿或 AI 生成文。
+- 禁止硬广、夸张营销话术、绝对化用语、地域攻击与政治内容。
+- 正文必须有活人感和具体细节，避免空泛形容词堆砌。
+- 参考样例只用于学习结构与节奏：用户允许改写时可以适度借鉴表达，但禁止整段照抄；用户只要求学结构时，内容必须完全基于用户简报重写。
+- 标题要精准抓住最值得点进来的重点，不追求一味变短，也不能营销化。
+
+事实准确性硬性约束：
+${FACT_RULES}
+
+输出必须是严格 JSON，不要 Markdown，不要代码块。`;
 
 const POLISH_SYSTEM_PROMPT = `你是一位小红书/抖音内容润色助手。请对以下文本进行有效润色：
 - 标题润色：不是一味变短，而是更精准抓住核心重点、文化差异冲突点或具体疑问，让人愿意点进来看
@@ -408,6 +428,9 @@ function normalizeAngles(payload: { angles?: Angle[] }): Angle[] {
     id: Number(angle.id) || index + 1,
     title: String(angle.title || `切入点${index + 1}`).slice(0, 40),
     description: String(angle.description || '').slice(0, 160),
+    audience: angle.audience ? String(angle.audience).slice(0, 60) : undefined,
+    emotionHook: angle.emotionHook ? String(angle.emotionHook).slice(0, 60) : undefined,
+    whyViral: angle.whyViral ? String(angle.whyViral).slice(0, 160) : undefined,
   }));
 }
 
@@ -945,6 +968,199 @@ ${params.document}
   return withoutGeneratedChat(payload);
 }
 
+// ===================== 从 Brief 创作（赛道化） =====================
+
+function formatBriefFields(vertical: VerticalConfig, fields: Record<string, string>): string {
+  const lines = vertical.briefFields
+    .map((field) => {
+      const value = String(fields[field.key] || '').trim();
+      return value ? `- ${field.label}：${value}` : '';
+    })
+    .filter(Boolean);
+  return lines.length > 0 ? `结构化信息：\n${lines.join('\n')}` : '';
+}
+
+function formatBriefReferences(references: string[], mode: ReferenceMode): string {
+  const list = references.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5);
+  if (list.length === 0) {
+    return '参考样例：无，请完全基于用户简报创作。';
+  }
+  const rule =
+    mode === 'structure-only'
+      ? '参考模式：只学结构，不抄内容。参考样例仅用于提取结构、节奏、开头钩子和分段方式；观点、细节和句子必须来自用户简报，禁止复用样例内容或原句。'
+      : '参考模式：允许适度改写。可以参考样例的表达方式和叙述结构，但必须结合用户简报重写，禁止整段照抄或只做换词。';
+  const body = list.map((item, index) => `【样例 ${index + 1}】\n${item.slice(0, 1500)}`).join('\n\n');
+  return `${rule}\n\n${body}`;
+}
+
+function briefCountryLine(country?: Country): string {
+  if (!country) return '';
+  return `国家：${country}\n目标外语：${LANGUAGE_MAP[country]}\n`;
+}
+
+function formatDeconstruction(deconstruction?: ReferenceDeconstruction): string {
+  if (!deconstruction) return '';
+  const structure = deconstruction.structure.map((item, i) => `  ${i + 1}. ${item}`).join('\n');
+  return `参考爆文拆解结果（只学结构与方法，禁止照抄原句）：
+- 标题公式：${deconstruction.titleFormula}
+- 开头钩子：${deconstruction.openingHook}
+- 段落结构：
+${structure}
+- 情绪触发点：${deconstruction.emotionalTriggers.join('、')}
+- 语气风格：${deconstruction.toneStyle}
+- 结尾方式：${deconstruction.cta}
+- 可复用模板：
+${deconstruction.reusableTemplate}
+- 去重要点：${deconstruction.dedupeTips.join('；')}`;
+}
+
+function normalizeDeconstruction(payload: Partial<ReferenceDeconstruction>): ReferenceDeconstruction {
+  const toArray = (value: unknown) =>
+    Array.isArray(value) ? value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 8) : [];
+  return {
+    titleFormula: String(payload.titleFormula || '').trim() || '未提炼出明确标题公式',
+    openingHook: String(payload.openingHook || '').trim() || '未提炼出明确开头钩子',
+    structure: toArray(payload.structure),
+    emotionalTriggers: toArray(payload.emotionalTriggers),
+    toneStyle: String(payload.toneStyle || '').trim() || '未识别出明显语气特征',
+    cta: String(payload.cta || '').trim() || '未识别出明显结尾引导',
+    reusableTemplate: String(payload.reusableTemplate || '').trim(),
+    dedupeTips: toArray(payload.dedupeTips),
+  };
+}
+
+// 参考爆文拆解：只分析「怎么写」，不产出新内容
+export async function deconstructReference(params: {
+  config: LlmConfig;
+  reference: string;
+  vertical: VerticalConfig;
+  platform: Platform;
+  preferenceContext?: string;
+}): Promise<ReferenceDeconstruction> {
+  const payload = await callChatJson<ReferenceDeconstruction>(
+    params.config,
+    `你是内容拆解专家。请拆解下面这篇${params.platform}内容，提炼它的「爆款写法」，不要复述它的具体内容。
+赛道：${params.vertical.name}
+${formatPlatformGuide(params.platform)}
+
+请输出：
+- titleFormula：标题用了什么公式（如：数字+痛点、反常识提问、人群标签+利益点）
+- openingHook：开头用什么方式抓注意力
+- structure：段落结构骨架（3-6 条，用「先……再……最后……」描述）
+- emotionalTriggers：触发了哪些情绪（如焦虑、身份认同、损失厌恶、共鸣、治愈、炫耀、好奇）
+- toneStyle：语气与表达风格
+- cta：结尾如何引导互动或转化
+- reusableTemplate：可直接套用的写作模板（用占位符描述，如「【人群】用了【产品】后，【具体变化】」）
+- dedupeTips：3-5 条去重改写建议（换人群、换场景、换证据、换叙述顺序等）
+
+要求：只分析写法，不照抄原文句子；判断基于原文实际特征，不要凭空编造。
+严格输出 JSON：
+{"titleFormula":"...","openingHook":"...","structure":["..."],"emotionalTriggers":["..."],"toneStyle":"...","cta":"...","reusableTemplate":"...","dedupeTips":["..."]}
+
+参考原文：
+${params.reference.trim().slice(0, 4000)}`,
+    { systemPrompt: BRIEF_SYSTEM_PROMPT, temperature: 0.5, preferenceContext: params.preferenceContext },
+  );
+  return normalizeDeconstruction(payload);
+}
+
+export async function analyzeBrief(params: {
+  config: LlmConfig;
+  brief: Brief;
+  vertical: VerticalConfig;
+  platform: Platform;
+  country?: Country;
+  deconstruction?: ReferenceDeconstruction;
+  viralSkill?: string;
+  preferenceContext?: string;
+}): Promise<Angle[]> {
+  const { brief, vertical } = params;
+  const extras = [
+    formatBriefFields(vertical, brief.fields),
+    brief.myNotes.trim() ? `我的补充想法：\n${brief.myNotes.trim()}` : '',
+    formatBriefReferences(brief.references, brief.referenceMode),
+    formatDeconstruction(params.deconstruction),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const payload = await callChatJson<{ angles: Angle[] }>(
+    params.config,
+    `场景：从用户简报（idea）出发的原创选题，不是文章改写。
+赛道：${vertical.name}
+${formatPlatformGuide(params.platform)}
+${briefCountryLine(params.country)}
+用户 idea：
+${brief.idea.trim() || '（用户未填写 idea，请以参考样例拆解结果为准）'}
+
+${extras}
+
+角度要求：
+${vertical.angleStrategy}
+- 输出 3-5 个角度，每个角度都必须能回到用户 idea / 参考样例，不要跳到无关主题。
+- 角度要有情绪种草意识：优先能踩中焦虑、身份认同、反常识、损失厌恶、共鸣、好奇等情绪的方向。
+- 每个角度额外输出：audience（目标人群）、emotionHook（主要情绪钩子）、whyViral（为什么可能成为爆款，1-2 句）。
+- 角度描述说明「围绕什么人群/场景/痛点」展开，不要只写宽泛话题。
+- 基于真实社会现象，禁止编造具体数据。
+${formatViralSkill(params.viralSkill)}
+返回格式：{"angles":[{"id":1,"title":"角度名","description":"围绕……展开","audience":"……","emotionHook":"……","whyViral":"……"}]}`,
+    { systemPrompt: BRIEF_SYSTEM_PROMPT, preferenceContext: params.preferenceContext },
+  );
+  return normalizeAngles(payload);
+}
+
+export async function generateFromBrief(params: {
+  config: LlmConfig;
+  brief: Brief;
+  vertical: VerticalConfig;
+  angle: Angle;
+  platform: Platform;
+  country?: Country;
+  deconstruction?: ReferenceDeconstruction;
+  viralSkill?: string;
+  preferenceContext?: string;
+}): Promise<GenerationResult> {
+  const { brief, vertical } = params;
+  const extras = [
+    formatBriefFields(vertical, brief.fields),
+    brief.myNotes.trim() ? `我的补充想法：\n${brief.myNotes.trim()}` : '',
+    formatBriefReferences(brief.references, brief.referenceMode),
+    formatDeconstruction(params.deconstruction),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const payload = await callChatJson<GenerationResult>(
+    params.config,
+    `请基于用户简报生成 1 条${vertical.name}内容，并附带事实自检 factChecks。
+${formatPlatformGuide(params.platform)}
+${briefCountryLine(params.country)}选定角度：${params.angle.title} - ${params.angle.description}
+${params.angle.emotionHook ? `情绪钩子：${params.angle.emotionHook}` : ''}
+${params.angle.audience ? `目标人群：${params.angle.audience}` : ''}
+
+用户 idea：
+${brief.idea.trim() || '（用户未填写 idea，请以参考样例拆解结果为准）'}
+
+${extras}
+
+正文写法：
+${vertical.bodyGuidance}
+
+通用要求：
+- 标题严格按平台标题规则，精准抓住本次内容最值得点进来的重点；不能营销化、不能像 AI。
+- 正文真人、具体、少重复，信息密度优先；不要写成说明书或通稿。
+- 参考样例只作为写法参考，必须去重：换人群、换场景、换证据、换叙述顺序，禁止照抄原句。
+- tags：${vertical.tagGuidance}
+${formatViralSkill(params.viralSkill)}
+${FACT_RULES}
+本次只生成正文内容，聊天记录必须输出空数组 chat: []，不要生成任何聊天对话。
+factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
+请严格输出 JSON：{"title":"...","post":"...","tags":["#标签"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+    { systemPrompt: BRIEF_SYSTEM_PROMPT, preferenceContext: params.preferenceContext },
+  );
+  return withoutGeneratedChat(payload);
+}
+
 export async function polishText(params: {
   config: LlmConfig;
   original: string;
@@ -1391,6 +1607,8 @@ export async function reviewContentWithSkills(params: {
   platform: Platform;
   reviewSkills: GuideSkill[];
   styleSkillName?: string;
+  // 赛道专项检查项：只作为补充检查维度，不额外计入一套标准分
+  extraRubric?: string;
 }): Promise<ContentReviewReport> {
   if (params.reviewSkills.length === 0) {
     return {
@@ -1421,7 +1639,7 @@ ${params.styleSkillName ? `当前风格 SKILL：${params.styleSkillName}` : ''}
 
 【审查标准】
 ${skillsText}
-
+${params.extraRubric ? `\n【赛道专项检查项（补充维度，不单独计一套标准分）】\n${params.extraRubric}\n` : ''}
 【要求】
 1. 逐条对照每套标准，给出 0-10 分的评分
 2. 每套标准列出 3-6 个具体检查项，每项标明 pass/warning/fail 和简短说明

@@ -21,6 +21,7 @@ import {
   MessageCircle,
   Palette as PaletteIcon,
   PenLine,
+  PlusCircle,
   RefreshCw,
   Save,
   Search,
@@ -57,14 +58,20 @@ import { usePreferences } from './hooks/usePreferences';
 import { useStyleSkills } from './hooks/useStyleSkills';
 import { useChatSkills } from './hooks/useChatSkills';
 import { useGuideSkills } from './hooks/useGuideSkills';
+import { useTemplates } from './hooks/useTemplates';
+import { useCustomVerticals } from './hooks/useCustomVerticals';
+import { CreateStudio } from './components/CreateStudio';
 import {
   analyzeArticle,
   analyzeArticleWithComments,
+  analyzeBrief,
   analyzeTopic,
   COUNTRIES,
+  deconstructReference,
   generateAppRecommendation,
   generateCoverText,
   generateFromArticle,
+  generateFromBrief,
   generateFromDocument,
   generateFromTopic,
   LANGUAGE_MAP,
@@ -84,6 +91,7 @@ import { getEnabledKnowledgeContext, truncateKnowledgeContext } from './knowledg
 import type {
   Angle,
   AppRecommendationResult,
+  Brief,
   ChatRow,
   ContentReviewReport,
   Country,
@@ -93,12 +101,15 @@ import type {
   GuideStage,
   HistoryRecord,
   Platform,
+  ReferenceDeconstruction,
   Scene,
+  VerticalConfig,
 } from './types';
+import { VERTICALS } from './config/verticals';
 import { buildViralSkillContext } from './viralSkill';
 import { fetchCloudSkills, pushCloudSkills } from './lib/cloudSync';
 
-type AppTab = 'home' | 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
+type AppTab = 'home' | 'create' | 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
 type Stage = 'empty' | 'angles' | 'generating' | 'result';
 // 云端同步 UI 状态：idle=未开始，syncing=推送中，synced=已同步，disabled=未配置 KV，error=鉴权/网络失败
 type CloudState = 'idle' | 'syncing' | 'synced' | 'disabled' | 'error';
@@ -109,6 +120,7 @@ const APP_PASSWORD_KEY = 'ht-app-password';
 
 const tabs: { key: AppTab; label: string; icon: typeof PenLine }[] = [
   { key: 'home', label: '工作台', icon: Home },
+  { key: 'create', label: '通用图文生成', icon: PlusCircle },
   { key: 'article', label: '文章改写', icon: PenLine },
   { key: 'topic', label: '话题创作', icon: Sparkles },
   { key: 'research', label: '资料检索', icon: Search },
@@ -585,6 +597,23 @@ function AngleSelection({
               <div className="min-w-0 flex-1 text-left">
                 <h3 className="font-bold text-[#1A1A1A]">{angle.title}</h3>
                 <p className="mt-1 text-sm leading-6 text-[#6B6B6B]">{angle.description}</p>
+                {(angle.audience || angle.emotionHook) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {angle.audience && (
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-[#4A4A4A]">
+                        人群：{angle.audience}
+                      </span>
+                    )}
+                    {angle.emotionHook && (
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-[#4A4A4A]">
+                        情绪：{angle.emotionHook}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {angle.whyViral && (
+                  <p className="mt-1.5 text-xs leading-5 text-[#8A8A8A]">爆款理由：{angle.whyViral}</p>
+                )}
               </div>
               <span className="shrink-0 rounded-full bg-white/70 px-3 py-1 text-sm font-semibold text-[#1A1A1A]">
                 {selected ? '已选择 ✓' : '选择 →'}
@@ -2824,6 +2853,30 @@ export default function AppShell() {
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState('');
 
+  // ===================== 新建创作（通用种草工作台） =====================
+  // 独立状态，不复用文章改写/话题创作的数据，保证原有流程完全不受影响。
+  const templates = useTemplates();
+  const customVerticals = useCustomVerticals();
+  const createVerticals = useMemo(
+    () => [...VERTICALS, ...customVerticals.verticals],
+    [customVerticals.verticals],
+  );
+  const [brief, setBrief] = useState<Brief>({
+    entryMode: 'idea',
+    vertical: 'product',
+    idea: '',
+    references: [''],
+    referenceMode: 'structure-only',
+    myNotes: '',
+    fields: {},
+  });
+  const [deconstruction, setDeconstruction] = useState<ReferenceDeconstruction | null>(null);
+  const [deconstructing, setDeconstructing] = useState(false);
+  // 通用图文生成是否套用「风格 SKILL」；方法论 SKILL 始终参与
+  const [createUseStyleSkill, setCreateUseStyleSkill] = useState(true);
+  const createVertical = createVerticals.find((item) => item.id === brief.vertical) || createVerticals[0];
+  const patchBrief = (patch: Partial<Brief>) => setBrief((prev) => ({ ...prev, ...patch }));
+
   const history = useHistory();
   const [viralExamples, setViralExamples] = useState(() => loadViralLibrary());
   const saveViralLibrary = (value: string) => {
@@ -2972,7 +3025,9 @@ export default function AppShell() {
 
   function handleTabChange(tab: AppTab) {
     setActive(tab);
-    if (tab === 'article' || tab === 'topic') resetWork();
+    // 「公众号」只属于新建创作板块；切回原有模块时回落到小红书，避免影响原有流程
+    if (tab !== 'create' && platform === '公众号') setPlatform('小红书');
+    if (tab === 'article' || tab === 'topic' || tab === 'create') resetWork();
   }
 
   async function handleAnalyze() {
@@ -3098,6 +3153,180 @@ export default function AppShell() {
     }
   }
 
+  // ===================== 新建创作：拆解 / 分析 / 生成 =====================
+  function buildCreateQuery() {
+    return [brief.idea, brief.myNotes, ...Object.values(brief.fields)]
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  async function handleCreateDeconstruct() {
+    const referenceText = brief.references
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join('\n\n---\n\n');
+    if (!referenceText) {
+      showToast('请先粘贴参考爆文');
+      return;
+    }
+    setDeconstructing(true);
+    setError('');
+    try {
+      const result = await deconstructReference({
+        config,
+        reference: referenceText,
+        vertical: createVertical,
+        platform,
+        preferenceContext: buildFullContext('analyze', 'article', createUseStyleSkill),
+      });
+      setDeconstruction(result);
+      showToast('拆解完成');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '拆解失败，请稍后重试。';
+      setError(message);
+      showToast(message);
+    } finally {
+      setDeconstructing(false);
+    }
+  }
+
+  async function handleCreateAnalyze() {
+    setError('');
+    const hasReferences = brief.references.some((item) => item.trim());
+    if (!brief.idea.trim() && !hasReferences) {
+      setError('请先填写 idea，或粘贴一篇参考爆文。');
+      showToast('请先填写 idea 或参考爆文');
+      return;
+    }
+    if (brief.entryMode === 'reference' && !deconstruction) {
+      setError('请先点击「拆解这篇爆文」，再分析选题方向。');
+      showToast('请先拆解参考爆文');
+      return;
+    }
+
+    setResult(emptyResult);
+    setFactCheckStatuses({});
+    setLoading('analyze');
+    try {
+      const query = buildCreateQuery();
+      const viralSkill =
+        brief.vertical === 'culture' ? buildViralSkillContext(combinedViralExamples, query) : undefined;
+      const nextAngles = await analyzeBrief({
+        config,
+        brief,
+        vertical: createVertical,
+        platform,
+        country: createVertical.useCountryDimension ? country : undefined,
+        deconstruction: deconstruction || undefined,
+        viralSkill,
+        preferenceContext: buildFullContext('analyze', 'article', createUseStyleSkill),
+      });
+      setAngles(nextAngles);
+      setSelectedAngleId(nextAngles[0]?.id ?? null);
+      if (nextAngles.length === 0) showToast('没有解析出可用角度');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '分析失败，请稍后重试。';
+      setError(message);
+      showToast(message);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleCreateGenerate() {
+    if (!selectedAngle) {
+      showToast('请先选择一个角度');
+      return;
+    }
+    setError('');
+    setLoading('generate');
+    try {
+      const query = [buildCreateQuery(), selectedAngle.title, selectedAngle.description].join('\n');
+      const viralSkill =
+        brief.vertical === 'culture' ? buildViralSkillContext(combinedViralExamples, query) : undefined;
+      const nextResult = await generateFromBrief({
+        config,
+        brief,
+        vertical: createVertical,
+        angle: selectedAngle,
+        platform,
+        country: createVertical.useCountryDimension ? country : undefined,
+        deconstruction: deconstruction || undefined,
+        viralSkill,
+        preferenceContext: buildFullContext('generate', 'article', createUseStyleSkill),
+      });
+      setResult(nextResult);
+      setFactCheckStatuses({});
+      setPostHistory([]);
+      setContentResearchResult(null);
+      setContentResearchError('');
+
+      const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
+      if (enabledGuides.length > 0) {
+        setReviewLoading(true);
+        reviewContentWithSkills({
+          config,
+          title: nextResult.title,
+          post: nextResult.post,
+          tags: nextResult.tags,
+          platform,
+          reviewSkills: enabledGuides,
+          styleSkillName: createUseStyleSkill ? styleSkills.activeSkill?.name : undefined,
+          extraRubric: createVertical.reviewRubric,
+        })
+          .then((report) => setReviewReport(report))
+          .catch(() => setReviewReport(null))
+          .finally(() => setReviewLoading(false));
+      } else {
+        setReviewReport(null);
+      }
+
+      history.add({
+        country,
+        topic: brief.idea,
+        article: brief.references.filter((item) => item.trim()).join('\n\n'),
+        platform,
+        angle: selectedAngle.title,
+        scene: 'article',
+        title: nextResult.title,
+        post: nextResult.post,
+        tags: nextResult.tags,
+        chat: nextResult.chat,
+        factChecks: nextResult.factChecks,
+      });
+      showToast('已生成并自动保存');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '生成失败，请稍后重试。';
+      setError(message);
+      showToast(message);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  function handleCreateSaveTemplate() {
+    if (!deconstruction) {
+      showToast('请先拆解参考爆文');
+      return;
+    }
+    templates.addTemplate({
+      name: `${createVertical.name} · ${platform}`,
+      vertical: brief.vertical,
+      platform,
+      deconstruction,
+    });
+    showToast('已存为模板');
+  }
+
+  function handleCreateUseTemplate(id: string) {
+    const template = templates.templates.find((item) => item.id === id);
+    if (!template) return;
+    setDeconstruction(template.deconstruction);
+    patchBrief({ entryMode: 'reference', vertical: template.vertical });
+    showToast('已载入模板');
+  }
+
   async function performReview(title: string, post: string, tags: string[]) {
     const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
     if (enabledGuides.length === 0) {
@@ -3113,7 +3342,13 @@ export default function AppShell() {
         tags,
         platform,
         reviewSkills: enabledGuides,
-        styleSkillName: styleSkills.activeSkill?.name,
+        styleSkillName:
+          active === 'create'
+            ? createUseStyleSkill
+              ? styleSkills.activeSkill?.name
+              : undefined
+            : styleSkills.activeSkill?.name,
+        extraRubric: active === 'create' ? createVertical.reviewRubric : undefined,
       });
       setReviewReport(report);
     } catch (err) {
@@ -3750,10 +3985,11 @@ export default function AppShell() {
 
   function handleManualSave() {
     if (!selectedAngle || !hasResult) return;
+    const isCreate = active === 'create';
     history.add({
       country,
-      topic,
-      article,
+      topic: isCreate ? brief.idea : topic,
+      article: isCreate ? brief.references.filter((item) => item.trim()).join('\n\n') : article,
       platform,
       angle: selectedAngle.title,
       scene,
@@ -3793,11 +4029,11 @@ export default function AppShell() {
     });
   }, [kbOpen]);
 
-  function buildFullContext(stage?: GuideStage, module: 'article' | 'app' = 'article') {
+  function buildFullContext(stage?: GuideStage, module: 'article' | 'app' = 'article', includeStyleSkill = true) {
     const parts: string[] = [];
     // 1. 风格 SKILL（最高优先级，callChatJson 会自动识别并前置）
     const moduleSkillContext = module === 'app' ? styleSkills.appSkillContext : styleSkills.skillContext;
-    if (moduleSkillContext) {
+    if (includeStyleSkill && moduleSkillContext) {
       parts.push(moduleSkillContext);
     }
     // 2. 通用爆文方法论 SKILL（按当前环节自动筛选已启用的）
@@ -4058,7 +4294,47 @@ export default function AppShell() {
             </div>
           ) : (
             <div className="mac-workspace">
-              <InputCard
+              {active === 'create' ? (
+                <CreateStudio
+                  brief={brief}
+                  verticals={createVerticals}
+                  platform={platform}
+                  country={country}
+                  templates={templates.templates}
+                  deconstruction={deconstruction}
+                  deconstructing={deconstructing}
+                  loading={loading}
+                  error={error}
+                  useStyleSkill={createUseStyleSkill}
+                  styleSkillName={styleSkills.activeSkill?.name}
+                  guideSkillCount={guideSkills.skills.filter((s) => s.enabled).length}
+                  onToggleUseStyleSkill={() => setCreateUseStyleSkill((prev) => !prev)}
+                  onBriefChange={patchBrief}
+                  onPlatformChange={(value) => {
+                    setPlatform(value);
+                    resetWork();
+                  }}
+                  onCountryChange={(value) => {
+                    setCountry(value);
+                    resetWork();
+                  }}
+                  onDeconstruct={handleCreateDeconstruct}
+                  onSaveTemplate={handleCreateSaveTemplate}
+                  onUseTemplate={handleCreateUseTemplate}
+                  onAddVertical={(vertical: Omit<VerticalConfig, 'builtIn'>) => {
+                    const created = customVerticals.addVertical(vertical);
+                    patchBrief({ vertical: created.id, fields: {} });
+                  }}
+                  onRemoveVertical={(id) => customVerticals.removeVertical(id)}
+                  onAnalyze={handleCreateAnalyze}
+                  onClear={() => {
+                    patchBrief({ idea: '', references: [''] });
+                    setDeconstruction(null);
+                    resetWork();
+                  }}
+                />
+              ) : (
+                <InputCard
                 scene={scene}
                 article={article}
                 topic={topic}
@@ -4090,7 +4366,8 @@ export default function AppShell() {
                   else setTopic('');
                   resetWork();
                 }}
-              />
+                />
+              )}
               <DynamicCard
                 stage={stage}
                 angles={angles}
@@ -4115,7 +4392,7 @@ export default function AppShell() {
                 reviewReport={reviewReport}
                 reviewLoading={reviewLoading}
                 onSelectAngle={setSelectedAngleId}
-                onGenerate={handleGenerate}
+                onGenerate={active === 'create' ? handleCreateGenerate : handleGenerate}
                 onAddCustomAngle={handleAddCustomAngle}
                 onBack={() => {
                   setResult(emptyResult);
