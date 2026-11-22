@@ -129,6 +129,57 @@ export interface Angle {
   audience?: string;
   emotionHook?: string;
   whyViral?: string;
+  // 选题评分：0-10，越高越值得做
+  score?: number;
+  scoreReason?: string;
+}
+
+// 策划案：生成正文之前的可编辑中间产物，由人确认后才允许生成
+export interface ContentPlan {
+  audience: string;
+  scenario: string;
+  painPoint: string;
+  // 利他清单：用户看完能带走的具体信息
+  takeaways: string[];
+  titleOptions: string[];
+  selectedTitle: string;
+  outline: string[];
+  // 用户真实细节与证据：只允许用户填写，AI 不得编造
+  evidence: string[];
+  // AI 建议补充的证据类型
+  evidenceSuggestions: string[];
+  cta: string;
+}
+
+// 审美四维质检：与合规质检并列，只评内容好不好看
+export interface AestheticDimension {
+  key: 'altruism' | 'density' | 'adFeel' | 'humanFeel';
+  label: string;
+  score: number;
+  issue: string;
+  suggestion: string;
+}
+
+export interface AestheticReview {
+  overallScore: number;
+  summary: string;
+  dimensions: AestheticDimension[];
+}
+
+// 选题草稿：策划台的资产，记录一个选题从角度、策划案到正文的全过程
+export interface PlanDraft {
+  id: string;
+  brief: Brief;
+  verticalId: VerticalId;
+  platform: Platform;
+  deconstruction: ReferenceDeconstruction | null;
+  angles: Angle[];
+  selectedAngleId: number | null;
+  plan: ContentPlan | null;
+  result: GenerationResult | null;
+  aestheticReview: AestheticReview | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ChatRow {

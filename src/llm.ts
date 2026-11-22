@@ -1,8 +1,11 @@
 import type {
+  AestheticDimension,
+  AestheticReview,
   Angle,
   AppRecommendationResult,
   Brief,
   ChatRow,
+  ContentPlan,
   ContentReviewReport,
   ContentRevisionResult,
   Country,
@@ -431,6 +434,8 @@ function normalizeAngles(payload: { angles?: Angle[] }): Angle[] {
     audience: angle.audience ? String(angle.audience).slice(0, 60) : undefined,
     emotionHook: angle.emotionHook ? String(angle.emotionHook).slice(0, 60) : undefined,
     whyViral: angle.whyViral ? String(angle.whyViral).slice(0, 160) : undefined,
+    score: typeof angle.score === 'number' ? Math.max(0, Math.min(10, Math.round(angle.score))) : undefined,
+    scoreReason: angle.scoreReason ? String(angle.scoreReason).slice(0, 120) : undefined,
   }));
 }
 
@@ -1100,10 +1105,11 @@ ${vertical.angleStrategy}
 - 输出 3-5 个角度，每个角度都必须能回到用户 idea / 参考样例，不要跳到无关主题。
 - 角度要有情绪种草意识：优先能踩中焦虑、身份认同、反常识、损失厌恶、共鸣、好奇等情绪的方向。
 - 每个角度额外输出：audience（目标人群）、emotionHook（主要情绪钩子）、whyViral（为什么可能成为爆款，1-2 句）。
+- 每个角度必须输出 score（0-10 的整数）和 scoreReason（一句话评分理由）。评分维度：受众是否具体、痛点/情绪是否强烈、是否有利他价值（用户看完能带走什么）、是否适合该平台传播。不要所有角度都给相同分数，要拉开差距。
 - 角度描述说明「围绕什么人群/场景/痛点」展开，不要只写宽泛话题。
 - 基于真实社会现象，禁止编造具体数据。
 ${formatViralSkill(params.viralSkill)}
-返回格式：{"angles":[{"id":1,"title":"角度名","description":"围绕……展开","audience":"……","emotionHook":"……","whyViral":"……"}]}`,
+返回格式：{"angles":[{"id":1,"title":"角度名","description":"围绕……展开","audience":"……","emotionHook":"……","whyViral":"……","score":8,"scoreReason":"……"}]}`,
     { systemPrompt: BRIEF_SYSTEM_PROMPT, preferenceContext: params.preferenceContext },
   );
   return normalizeAngles(payload);
@@ -1159,6 +1165,164 @@ factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed
     { systemPrompt: BRIEF_SYSTEM_PROMPT, preferenceContext: params.preferenceContext },
   );
   return withoutGeneratedChat(payload);
+}
+
+// ===================== 策划台：策划案 → 生成 → 审美质检 =====================
+
+function formatPlanExtras(vertical: VerticalConfig, brief: Brief, deconstruction?: ReferenceDeconstruction) {
+  return [
+    formatBriefFields(vertical, brief.fields),
+    brief.myNotes.trim() ? `我的补充想法：\n${brief.myNotes.trim()}` : '',
+    formatBriefReferences(brief.references, brief.referenceMode),
+    formatDeconstruction(deconstruction),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+// 选题确认后，先产出策划案（不写正文），由人修改确认
+export async function buildContentPlan(params: {
+  config: LlmConfig;
+  brief: Brief;
+  vertical: VerticalConfig;
+  angle: Angle;
+  platform: Platform;
+  country?: Country;
+  deconstruction?: ReferenceDeconstruction;
+  preferenceContext?: string;
+}): Promise<Omit<ContentPlan, 'evidence' | 'selectedTitle'>> {
+  const { brief, vertical } = params;
+  const payload = await callChatJson<Omit<ContentPlan, 'evidence' | 'selectedTitle'>>(
+    params.config,
+    `你是内容策划，不是写手。请基于下面的选题输出一份可执行的策划案，不要写正文。
+赛道：${vertical.name}
+${formatPlatformGuide(params.platform)}
+选定角度：${params.angle.title} - ${params.angle.description}
+${params.angle.audience ? `目标人群：${params.angle.audience}` : ''}
+${params.angle.emotionHook ? `情绪钩子：${params.angle.emotionHook}` : ''}
+
+用户 idea：
+${brief.idea.trim() || '（以参考样例拆解结果为准）'}
+
+${formatPlanExtras(vertical, brief, params.deconstruction)}
+
+策划案要求：
+1. audience：具体到一类人，不要写"所有人""大家"。
+2. scenario：一个具体的生活/使用场景，有画面感。
+3. painPoint：这个场景下最真实的痛点或情绪，一句话说透。
+4. takeaways：3 条利他清单，即用户看完这篇内容能带走的具体信息、方法或判断标准，必须可执行，不要口号和形容词。
+5. titleOptions：3 个候选标题，风格各不相同（疑问型 / 反常识型 / 清单干货型），符合平台标题规则，不像广告。
+6. outline：4-6 条正文大纲，每条写清楚这段写什么、承担什么作用（钩子/细节/对比/方法/收尾）。
+7. evidenceSuggestions：3 条建议用户补充的真实证据类型，例如"我自己的订单截图""连续用两周后的变化""和另一款的对比"。只能建议"需要补什么"，绝对不能替用户编造经历和细节。
+8. cta：结尾互动方式，引导讨论而非引导购买。
+
+严格输出 JSON：
+{"audience":"...","scenario":"...","painPoint":"...","takeaways":["..."],"titleOptions":["..."],"outline":["..."],"evidenceSuggestions":["..."],"cta":"..."}`,
+    { systemPrompt: BRIEF_SYSTEM_PROMPT, temperature: 0.6, preferenceContext: params.preferenceContext },
+  );
+  return {
+    audience: String(payload?.audience || '').trim(),
+    scenario: String(payload?.scenario || '').trim(),
+    painPoint: String(payload?.painPoint || '').trim(),
+    takeaways: (Array.isArray(payload?.takeaways) ? payload.takeaways : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 5),
+    titleOptions: (Array.isArray(payload?.titleOptions) ? payload.titleOptions : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3),
+    outline: (Array.isArray(payload?.outline) ? payload.outline : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 6),
+    evidenceSuggestions: (Array.isArray(payload?.evidenceSuggestions) ? payload.evidenceSuggestions : []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 4),
+    cta: String(payload?.cta || '').trim(),
+  };
+}
+
+// 严格按人确认的策划案生成正文，真实细节只允许来自用户填写的 evidence
+export async function generateFromPlan(params: {
+  config: LlmConfig;
+  plan: ContentPlan;
+  brief: Brief;
+  vertical: VerticalConfig;
+  platform: Platform;
+  preferenceContext?: string;
+}): Promise<GenerationResult> {
+  const { plan, vertical } = params;
+  const payload = await callChatJson<GenerationResult>(
+    params.config,
+    `请严格按照用户已经确认的策划案写一条${vertical.name}内容，并附带事实自检 factChecks。
+${formatPlatformGuide(params.platform)}
+
+策划案：
+目标人群：${plan.audience}
+场景：${plan.scenario}
+痛点/情绪：${plan.painPoint}
+标题：${plan.selectedTitle}
+大纲：${plan.outline.map((item, index) => `${index + 1}. ${item}`).join('\n')}
+必须兑现的利他信息：${plan.takeaways.map((item, index) => `${index + 1}. ${item}`).join('\n')}
+用户提供的真实细节与证据（唯一可使用的事实来源）：
+${plan.evidence.map((item, index) => `${index + 1}. ${item}`).join('\n')}
+结尾互动：${plan.cta}
+
+硬性要求：
+1. 利他优先：正文必须覆盖全部"利他信息"，具体到可操作，不要只围绕产品或主题夸赞。
+2. 真实细节只能使用上面"用户提供的真实细节与证据"，禁止新增任何除此之外的具体数字、价格、政策、对比结论。证据不够就写主观感受，不要编。
+3. 标题使用策划案标题，只允许微调语序。
+4. 按大纲组织段落，允许自然合并，但不要写成说明书或通稿。
+5. 像一个具体的人在跟一个具体的朋友说话：允许口语、短句、不完美表达；禁止"重磅""必买""绝绝子""yyds"等营销词，禁止空泛形容词堆砌，禁止每段都是同样的句式。
+6. 正文要有素人感：可以有犹豫、对比、踩坑，不要全程正确而空洞。
+7. tags：${vertical.tagGuidance}
+${FACT_RULES}
+本次只生成正文内容，chat 必须输出空数组。
+factChecks 输出 2-5 条对正文关键陈述的自检，level 取值 confirmed/uncertain/softened。
+严格输出 JSON：{"title":"...","post":"...","tags":["#标签"],"chat":[],"factChecks":[{"level":"confirmed","claim":"...","note":"..."}]}`,
+    { systemPrompt: BRIEF_SYSTEM_PROMPT, preferenceContext: params.preferenceContext },
+  );
+  return withoutGeneratedChat(payload);
+}
+
+const AESTHETIC_LABELS: Record<AestheticDimension['key'], string> = {
+  altruism: '利他性',
+  density: '信息密度',
+  adFeel: '不像广告',
+  humanFeel: '素人感',
+};
+
+// 审美四维质检：只评内容好不好看，不评合规
+export async function reviewAesthetics(params: {
+  config: LlmConfig;
+  title: string;
+  post: string;
+  vertical: VerticalConfig;
+  platform: Platform;
+  preferenceContext?: string;
+}): Promise<AestheticReview> {
+  const payload = await callChatJson<AestheticReview>(
+    params.config,
+    `请从"内容审美"角度评审下面这条${params.platform}的${params.vertical.name}内容，只评四个维度，不做合规检查。
+标题：${params.title}
+正文：${params.post}
+
+四个维度（各 0-10 分）：
+1. altruism 利他性：用户看完能带走什么？有没有可执行的信息、方法或判断标准？还是只表达了态度？
+2. density 信息密度：有没有废话、重复、空泛形容词？每一段是否都有新信息？
+3. adFeel 不像广告：10 分 = 完全像真实用户自发分享，0 分 = 明显推广文案。重点看有没有营销词、夸大承诺、通稿腔。
+4. humanFeel 素人感：是否像一个具体的人在说话？有没有真实细节、口语、个人判断？还是正确而空洞？
+
+每个维度输出：score（0-10 整数）、issue（最主要的一个问题，没有就写"无明显问题"）、suggestion（一条具体可执行的修改建议）。
+overallScore 取四个维度的平均分（保留 1 位小数），summary 用一句话总评这条内容最大的问题。
+严格输出 JSON：
+{"overallScore":7.5,"summary":"...","dimensions":[{"key":"altruism","score":7,"issue":"...","suggestion":"..."},{"key":"density","score":7,"issue":"...","suggestion":"..."},{"key":"adFeel","score":7,"issue":"...","suggestion":"..."},{"key":"humanFeel","score":7,"issue":"...","suggestion":"..."}]}`,
+    { systemPrompt: BRIEF_SYSTEM_PROMPT, temperature: 0.3, preferenceContext: params.preferenceContext },
+  );
+  const keys: AestheticDimension['key'][] = ['altruism', 'density', 'adFeel', 'humanFeel'];
+  const raw = Array.isArray(payload?.dimensions) ? payload.dimensions : [];
+  const dimensions = keys.map((key) => {
+    const found = raw.find((item) => item?.key === key);
+    return {
+      key,
+      label: AESTHETIC_LABELS[key],
+      score: Math.max(0, Math.min(10, Number(found?.score) || 0)),
+      issue: String(found?.issue || '').trim(),
+      suggestion: String(found?.suggestion || '').trim(),
+    };
+  });
+  const overallScore = Number(payload?.overallScore) || dimensions.reduce((sum, item) => sum + item.score, 0) / dimensions.length;
+  return { overallScore, summary: String(payload?.summary || '').trim(), dimensions };
 }
 
 export async function polishText(params: {

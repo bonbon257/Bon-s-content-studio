@@ -33,7 +33,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { FactCheckPanel, type FactCheckStatus } from './components/FactCheckPanel';
 import { CoverGenerator } from './components/CoverGenerator';
 import { HomePage } from './components/HomePage';
@@ -61,19 +61,22 @@ import { useGuideSkills } from './hooks/useGuideSkills';
 import { useTemplates } from './hooks/useTemplates';
 import { useCustomVerticals } from './hooks/useCustomVerticals';
 import { CreateStudio } from './components/CreateStudio';
+import { TopicListPanel } from './components/TopicListPanel';
+import { usePlanDrafts } from './hooks/usePlanDrafts';
 import {
   analyzeArticle,
   analyzeArticleWithComments,
   analyzeBrief,
   analyzeTopic,
   COUNTRIES,
+  buildContentPlan,
   deconstructReference,
   generateAppRecommendation,
   generateCoverText,
   generateFromArticle,
-  generateFromBrief,
   generateFromDocument,
   generateFromTopic,
+  generateFromPlan,
   LANGUAGE_MAP,
   loadConfig,
   planChatScene,
@@ -83,6 +86,7 @@ import {
   regenerateTitle,
   researchGeneratedContent,
   researchTopic,
+  reviewAesthetics,
   reviewContentWithSkills,
   reviseGeneratedContent,
   saveConfig,
@@ -102,15 +106,23 @@ import type {
   HistoryRecord,
   Platform,
   ReferenceDeconstruction,
+  AestheticReview,
+  ContentPlan,
+  PlanDraft,
   Scene,
   VerticalConfig,
 } from './types';
 import { VERTICALS } from './config/verticals';
+import { EDGY_CHAT_INSTRUCTION, type ChatTone } from './config/tone';
+import { findHedges } from './utils/hedge';
+import { ChatTonePanel } from './components/ChatTonePanel';
+import { PlanEditor } from './components/PlanEditor';
+import { AestheticPanel } from './components/AestheticPanel';
 import { buildViralSkillContext } from './viralSkill';
 import { fetchCloudSkills, pushCloudSkills } from './lib/cloudSync';
 
 type AppTab = 'home' | 'create' | 'article' | 'topic' | 'research' | 'chat' | 'app' | 'document' | 'history';
-type Stage = 'empty' | 'angles' | 'generating' | 'result';
+type Stage = 'empty' | 'angles' | 'plan' | 'generating' | 'result';
 // 云端同步 UI 状态：idle=未开始，syncing=推送中，synced=已同步，disabled=未配置 KV，error=鉴权/网络失败
 type CloudState = 'idle' | 'syncing' | 'synced' | 'disabled' | 'error';
 
@@ -120,7 +132,7 @@ const APP_PASSWORD_KEY = 'ht-app-password';
 
 const tabs: { key: AppTab; label: string; icon: typeof PenLine }[] = [
   { key: 'home', label: '工作台', icon: Home },
-  { key: 'create', label: '通用图文生成', icon: PlusCircle },
+  { key: 'create', label: '策划台', icon: PlusCircle },
   { key: 'article', label: '文章改写', icon: PenLine },
   { key: 'topic', label: '话题创作', icon: Sparkles },
   { key: 'research', label: '资料检索', icon: Search },
@@ -129,6 +141,14 @@ const tabs: { key: AppTab; label: string; icon: typeof PenLine }[] = [
   { key: 'document', label: '按文档生成', icon: FileText },
   { key: 'history', label: '历史', icon: History },
 ];
+
+// 导航分组：新内容创作系统 / 现有 HelloTalk 工作流（功能不变，只归组）
+const CREATE_TAB_KEYS: AppTab[] = ['home', 'create'];
+const HT_TAB_KEYS: AppTab[] = ['article', 'topic', 'document', 'app', 'chat', 'research', 'history'];
+
+function tabsOf(keys: AppTab[]) {
+  return keys.map((key) => tabs.find((tab) => tab.key === key)!).filter(Boolean);
+}
 
 const angleColors = ['#F5D5D5', '#F5E6D0', '#E0D5F5', '#D5F0E0', '#D5E8F5'];
 
@@ -192,28 +212,36 @@ function SideNav({
   active: AppTab;
   onTabChange: (tab: AppTab) => void;
 }) {
-  const items = tabs;
+  const groups: { label: string; items: typeof tabs }[] = [
+    { label: '内容创作', items: tabsOf(CREATE_TAB_KEYS) },
+    { label: 'HelloTalk', items: tabsOf(HT_TAB_KEYS) },
+  ];
   return (
     <aside className="mac-side-nav">
       <div className="mac-logo-bubble">
         <Leaf className="h-6 w-6" />
       </div>
-      <nav className="mt-10 flex flex-col items-center gap-4">
-        {items.map((item) => {
-          const Icon = item.icon;
-          const selected = active === item.key;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              title={item.label}
-              onClick={() => onTabChange(item.key)}
-              className={`mac-side-icon ${selected ? 'is-active' : ''}`}
-            >
-              <Icon className="h-5 w-5" />
-            </button>
-          );
-        })}
+      <nav className="mt-8 flex flex-col items-center gap-5">
+        {groups.map((group) => (
+          <div key={group.label} className="flex flex-col items-center gap-3">
+            <p className="text-[10px] font-medium tracking-wide text-[#A8A8A8]">{group.label}</p>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const selected = active === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  title={item.label}
+                  onClick={() => onTabChange(item.key)}
+                  className={`mac-side-icon ${selected ? 'is-active' : ''}`}
+                >
+                  <Icon className="h-5 w-5" />
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
       <div className="mt-auto mac-avatar">
         <User className="h-5 w-5" />
@@ -245,10 +273,15 @@ function TopBar({
   activeSkillName?: string;
   cloudState?: CloudState;
 }) {
+  const [htOpen, setHtOpen] = useState(false);
+  const htActive = HT_TAB_KEYS.includes(active);
+  useEffect(() => {
+    setHtOpen(false);
+  }, [active]);
   return (
     <header className="mac-topbar">
       <div className="mac-tabs">
-        {tabs.map((tab) => {
+        {tabsOf(CREATE_TAB_KEYS).map((tab) => {
           const selected = active === tab.key;
           return (
             <button
@@ -262,6 +295,36 @@ function TopBar({
             </button>
           );
         })}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setHtOpen((prev) => !prev)}
+            className={`mac-tab flex items-center gap-1 ${htActive ? 'is-active' : ''}`}
+          >
+            <span>{htActive ? '●' : '○'}</span>
+            HelloTalk
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {htOpen && (
+            <div className="absolute left-0 top-full z-50 mt-2 w-44 rounded-2xl border border-[#E8E4DE] bg-white p-2 shadow-[0_12px_40px_rgba(0,0,0,0.12)]">
+              {tabsOf(HT_TAB_KEYS).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    onTabChange(tab.key);
+                    setHtOpen(false);
+                  }}
+                  className={`flex w-full items-center rounded-xl px-3 py-2 text-left text-sm ${
+                    active === tab.key ? 'bg-[#F5F3EF] font-semibold text-[#1A1A1A]' : 'text-[#4A4A4A] hover:bg-[#FAFAFA]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div className="flex items-center gap-3">
         {cloudState && cloudState !== 'idle' && (
@@ -542,6 +605,7 @@ function AngleSelection({
   onSelectAngle,
   onAddCustomAngle,
   onGenerate,
+  generateLabel,
 }: {
   angles: Angle[];
   selectedAngleId: number | null;
@@ -549,6 +613,7 @@ function AngleSelection({
   onSelectAngle: (id: number) => void;
   onAddCustomAngle: (angle: Angle) => void;
   onGenerate: () => void;
+  generateLabel?: string;
 }) {
   const [customTitle, setCustomTitle] = useState('');
   const [customDescription, setCustomDescription] = useState('');
@@ -614,6 +679,12 @@ function AngleSelection({
                 {angle.whyViral && (
                   <p className="mt-1.5 text-xs leading-5 text-[#8A8A8A]">爆款理由：{angle.whyViral}</p>
                 )}
+                {typeof angle.score === 'number' && (
+                  <p className="mt-1.5 text-xs font-semibold text-[#1A1A1A]">
+                    选题评分 {angle.score}/10
+                    {angle.scoreReason ? <span className="font-normal text-[#6B6B6B]"> · {angle.scoreReason}</span> : null}
+                  </p>
+                )}
               </div>
               <span className="shrink-0 rounded-full bg-white/70 px-3 py-1 text-sm font-semibold text-[#1A1A1A]">
                 {selected ? '已选择 ✓' : '选择 →'}
@@ -664,7 +735,7 @@ function AngleSelection({
               生成中...
             </>
           ) : (
-            <>🚀 生成内容</>
+            <>🚀 {generateLabel || '生成内容'}</>
           )}
         </button>
         <button type="button" className="mac-text-btn">
@@ -1858,6 +1929,14 @@ function DynamicCard({
   enabledGuideSkills,
   reviewReport,
   reviewLoading,
+  chatTone,
+  onChatToneChange,
+  hedgeHits,
+  chatHedgeCount,
+  onRemoveHedges,
+  plannerSlot,
+  aestheticSlot,
+  generateLabel,
   onSelectAngle,
   onGenerate,
   onAddCustomAngle,
@@ -1906,6 +1985,14 @@ function DynamicCard({
   enabledGuideSkills: Array<{ id: string; name: string }>;
   reviewReport: ContentReviewReport | null;
   reviewLoading: boolean;
+  chatTone: ChatTone;
+  onChatToneChange: (tone: ChatTone) => void;
+  hedgeHits: string[];
+  chatHedgeCount: number;
+  onRemoveHedges: () => void;
+  plannerSlot?: ReactNode;
+  aestheticSlot?: ReactNode;
+  generateLabel?: string;
   onSelectAngle: (id: number) => void;
   onGenerate: () => void;
   onAddCustomAngle: (angle: Angle) => void;
@@ -1934,8 +2021,20 @@ function DynamicCard({
 }) {
   return (
     <section className="mac-card mac-dynamic-card">
+      {stage === 'result' && (
+        <ChatTonePanel
+          tone={chatTone}
+          onToneChange={onChatToneChange}
+          hedgeHits={hedgeHits}
+          chatHedgeCount={chatHedgeCount}
+          removing={chatLoading}
+          onRemoveHedges={onRemoveHedges}
+        />
+      )}
+      {stage === 'result' && aestheticSlot}
       <AnimatePresence mode="wait">
         {stage === 'empty' && <EmptyState />}
+        {stage === 'plan' && plannerSlot}
         {stage === 'angles' && (
           <AngleSelection
             angles={angles}
@@ -1944,6 +2043,7 @@ function DynamicCard({
             onSelectAngle={onSelectAngle}
             onAddCustomAngle={onAddCustomAngle}
             onGenerate={onGenerate}
+            generateLabel={generateLabel}
           />
         )}
         {stage === 'generating' && <GeneratingState />}
@@ -2792,6 +2892,10 @@ export default function AppShell() {
   const [titleRegenerating, setTitleRegenerating] = useState(false);
   const [feishuDocLoading, setFeishuDocLoading] = useState(false);
   const [revisingContent, setRevisingContent] = useState(false);
+  const [chatTone, setChatTone] = useState<ChatTone>('authentic');
+  const [contentPlan, setContentPlan] = useState<ContentPlan | null>(null);
+  const [aestheticReview, setAestheticReview] = useState<AestheticReview | null>(null);
+  const [aestheticLoading, setAestheticLoading] = useState(false);
   const [polishChanges, setPolishChanges] = useState<string[]>([]);
   const [postHistory, setPostHistory] = useState<string[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -2877,6 +2981,69 @@ export default function AppShell() {
   const createVertical = createVerticals.find((item) => item.id === brief.vertical) || createVerticals[0];
   const patchBrief = (patch: Partial<Brief>) => setBrief((prev) => ({ ...prev, ...patch }));
 
+  // 策划台：首屏是选题列表，选题从角度、策划案到正文全程存档
+  const planDrafts = usePlanDrafts();
+  const [createView, setCreateView] = useState<'list' | 'editor'>('list');
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (active !== 'create' || createView !== 'editor') return;
+    const hasContent = Boolean(
+      brief.idea.trim() || brief.references.some((item) => item.trim()) || angles.length > 0 || contentPlan,
+    );
+    if (!hasContent) return;
+    const id = activeDraftId ?? `draft-${Date.now()}`;
+    if (!activeDraftId) setActiveDraftId(id);
+    const existing = planDrafts.drafts.find((item) => item.id === id);
+    planDrafts.upsertDraft({
+      id,
+      brief,
+      verticalId: brief.vertical,
+      platform,
+      deconstruction,
+      angles,
+      selectedAngleId,
+      plan: contentPlan,
+      result: result.title ? result : null,
+      aestheticReview,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }, [active, createView, brief, platform, deconstruction, angles, selectedAngleId, contentPlan, result, aestheticReview]);
+
+  function handleNewDraft() {
+    setActiveDraftId(null);
+    setBrief({
+      entryMode: 'idea',
+      vertical: brief.vertical,
+      idea: '',
+      references: [''],
+      referenceMode: 'structure-only',
+      myNotes: '',
+      fields: {},
+    });
+    setDeconstruction(null);
+    setContentPlan(null);
+    setAestheticReview(null);
+    resetWork();
+    setCreateView('editor');
+  }
+
+  function handleOpenDraft(draft: PlanDraft) {
+    setActiveDraftId(draft.id);
+    setBrief(draft.brief);
+    setPlatform(draft.platform);
+    setDeconstruction(draft.deconstruction);
+    setAngles(draft.angles);
+    setSelectedAngleId(draft.selectedAngleId);
+    setContentPlan(draft.plan);
+    setAestheticReview(draft.aestheticReview);
+    setResult(draft.result ?? emptyResult);
+    setFactCheckStatuses({});
+    setError('');
+    setCreateView('editor');
+  }
+
   const history = useHistory();
   const [viralExamples, setViralExamples] = useState(() => loadViralLibrary());
   const saveViralLibrary = (value: string) => {
@@ -2894,7 +3061,16 @@ export default function AppShell() {
   const selectedAngle = angles.find((angle) => angle.id === selectedAngleId) || null;
   const scene: Scene = active === 'topic' ? 'topic' : 'article';
   const hasResult = !!result.title || !!result.post || (result.chat && result.chat.length > 0);
-  const stage: Stage = loading === 'generate' ? 'generating' : hasResult ? 'result' : angles.length > 0 ? 'angles' : 'empty';
+  const stage: Stage =
+    loading === 'generate'
+      ? 'generating'
+      : hasResult
+        ? 'result'
+        : active === 'create' && contentPlan
+          ? 'plan'
+          : angles.length > 0
+            ? 'angles'
+            : 'empty';
 
   // ===================== 云端同步 =====================
   // 1) 启动时从云端拉取，覆盖本地（云端为准）
@@ -3207,6 +3383,8 @@ export default function AppShell() {
 
     setResult(emptyResult);
     setFactCheckStatuses({});
+    setContentPlan(null);
+    setAestheticReview(null);
     setLoading('analyze');
     try {
       const query = buildCreateQuery();
@@ -3234,7 +3412,8 @@ export default function AppShell() {
     }
   }
 
-  async function handleCreateGenerate() {
+  // 策划台第一步：选题确认后先出策划案，不写正文
+  async function handleCreatePlan() {
     if (!selectedAngle) {
       showToast('请先选择一个角度');
       return;
@@ -3242,10 +3421,7 @@ export default function AppShell() {
     setError('');
     setLoading('generate');
     try {
-      const query = [buildCreateQuery(), selectedAngle.title, selectedAngle.description].join('\n');
-      const viralSkill =
-        brief.vertical === 'culture' ? buildViralSkillContext(combinedViralExamples, query) : undefined;
-      const nextResult = await generateFromBrief({
+      const plan = await buildContentPlan({
         config,
         brief,
         vertical: createVertical,
@@ -3253,7 +3429,94 @@ export default function AppShell() {
         platform,
         country: createVertical.useCountryDimension ? country : undefined,
         deconstruction: deconstruction || undefined,
-        viralSkill,
+        preferenceContext: buildFullContext('analyze', 'article', createUseStyleSkill),
+      });
+      setContentPlan({ ...plan, selectedTitle: plan.titleOptions[0] || selectedAngle.title, evidence: [] });
+      setAestheticReview(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '策划案生成失败，请稍后重试。';
+      setError(message);
+      showToast(message);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function runAestheticReview(title: string, post: string) {
+    setAestheticLoading(true);
+    try {
+      const review = await reviewAesthetics({
+        config,
+        title,
+        post,
+        vertical: createVertical,
+        platform,
+        preferenceContext: buildFullContext('revise', 'article', createUseStyleSkill),
+      });
+      setAestheticReview(review);
+    } catch {
+      setAestheticReview(null);
+    } finally {
+      setAestheticLoading(false);
+    }
+  }
+
+  // 按审美建议优化正文，优化后自动复审
+  async function handleAestheticOptimize() {
+    if (!aestheticReview) return;
+    const suggestions = aestheticReview.dimensions
+      .filter((item) => item.suggestion)
+      .map((item) => `${item.label}：${item.suggestion}`)
+      .join('\n');
+    if (!suggestions) {
+      showToast('暂无可执行的修改建议');
+      return;
+    }
+    setRevisingContent(true);
+    try {
+      const next = await reviseGeneratedContent({
+        config,
+        mode: 'viral',
+        title: result.title,
+        post: result.post,
+        tags: result.tags,
+        instruction: `请只按以下审美建议修改，保持策划方向和用户提供的真实细节不变，不要新增具体数字：\n${suggestions}`,
+        platform,
+        sourceContext: buildCreateQuery(),
+        preferenceContext: buildFullContext('revise', 'article', createUseStyleSkill),
+      });
+      rememberPostVersion(result.post);
+      setResult((prev) => ({
+        ...prev,
+        title: next.title,
+        post: next.post,
+        tags: next.tags,
+        factChecks: next.factChecks || prev.factChecks,
+      }));
+      setPolishChanges(next.changes?.length ? next.changes : ['已按审美建议优化。']);
+      showToast('已按审美建议优化');
+      await runAestheticReview(next.title, next.post);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '优化失败');
+    } finally {
+      setRevisingContent(false);
+    }
+  }
+
+  async function handleCreateGenerate() {
+    if (!selectedAngle || !contentPlan) {
+      showToast('请先确认策划案');
+      return;
+    }
+    setError('');
+    setLoading('generate');
+    try {
+      const nextResult = await generateFromPlan({
+        config,
+        plan: contentPlan,
+        brief,
+        vertical: createVertical,
+        platform,
         preferenceContext: buildFullContext('generate', 'article', createUseStyleSkill),
       });
       setResult(nextResult);
@@ -3261,6 +3524,8 @@ export default function AppShell() {
       setPostHistory([]);
       setContentResearchResult(null);
       setContentResearchError('');
+      // 策划台：生成后自动做审美四维质检
+      runAestheticReview(nextResult.title, nextResult.post);
 
       const enabledGuides = guideSkills.skills.filter((s) => s.enabled);
       if (enabledGuides.length > 0) {
@@ -3626,7 +3891,7 @@ export default function AppShell() {
         currentChat: result.chat,
         instruction,
         mode,
-        chatSkillContext: chatSkills.skillContext,
+        chatSkillContext: buildChatSkillContext(),
       });
       setResult((prev) => ({ ...prev, chat: nextChat }));
       showToast(mode === 'fromPost' ? '聊天记录已根据正文和建议重生成' : '聊天记录已按你的建议重写');
@@ -3653,7 +3918,7 @@ export default function AppShell() {
         title: result.title,
         post: result.post,
         angle: selectedAngle?.title,
-        chatSkillContext: chatSkills.skillContext,
+        chatSkillContext: buildChatSkillContext(),
       });
       if (!scene.trim()) throw new Error('场景规划结果为空');
       setChatScene(scene);
@@ -3712,7 +3977,7 @@ export default function AppShell() {
         currentChat: result.chat,
         rowIndex: index,
         instruction,
-        chatSkillContext: chatSkills.skillContext,
+        chatSkillContext: buildChatSkillContext(),
       });
       setResult((prev) => ({
         ...prev,
@@ -3743,7 +4008,7 @@ export default function AppShell() {
         title: chatLabTitle,
         post: chatLabPost,
         direction: chatLabInstruction,
-        chatSkillContext: chatSkills.skillContext,
+        chatSkillContext: buildChatSkillContext(),
       });
       if (!scene.trim()) throw new Error('场景规划结果为空');
       setChatLabScene(scene);
@@ -3778,7 +4043,7 @@ export default function AppShell() {
         currentChat: chatLabRows,
         instruction: chatLabInstruction,
         mode,
-        chatSkillContext: chatSkills.skillContext,
+        chatSkillContext: buildChatSkillContext(),
       });
       setChatLabRows(nextChat);
       showToast(mode === 'fromPost' ? '聊天记录已生成' : '聊天记录已按建议重写');
@@ -3810,7 +4075,7 @@ export default function AppShell() {
         currentChat: chatLabRows,
         rowIndex: index,
         instruction: chatLabInstruction,
-        chatSkillContext: chatSkills.skillContext,
+        chatSkillContext: buildChatSkillContext(),
       });
       setChatLabRows((prev) => prev.map((row, idx) => (idx === index ? nextRow : row)));
       showToast('已重生成这一行聊天');
@@ -4052,6 +4317,30 @@ export default function AppShell() {
     return parts.join('\n\n');
   }
 
+  // 聊天风格 SKILL + 本次聊天调性（争议猎奇时附加不圆场规则）
+  function buildChatSkillContext() {
+    return [chatSkills.skillContext, chatTone === 'edgy' ? EDGY_CHAT_INSTRUCTION : '']
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  const chatHedgeHits = useMemo(
+    () => findHedges(result.chat.flatMap((row) => [row.chinese, row.foreign])),
+    [result.chat],
+  );
+  const hedgeHits = useMemo(
+    () => findHedges([result.post, ...result.chat.flatMap((row) => [row.chinese, row.foreign])]),
+    [result.post, result.chat],
+  );
+
+  async function handleRemoveHedges() {
+    if (chatHedgeHits.length === 0) return;
+    await handleRegenerateChat(
+      'fromPost',
+      `请去除以下和稀泥表达，改写成有明确立场的说法：${chatHedgeHits.join('、')}。要求：外国朋友给出明确判断并配具体细节，每轮都有新信息或新冲突，结尾不要和解或总结。`,
+    );
+  }
+
   function openThemeDrawer() {
     setThemeDraft(themeSettings);
     setThemeOpen(true);
@@ -4170,7 +4459,19 @@ export default function AppShell() {
 
           <KnowledgeBaseDrawer open={kbOpen} onClose={() => setKbOpen(false)} />
 
-          {active === 'home' ? (
+          {active === 'create' && createView === 'list' ? (
+            <div className="mac-content-scroll">
+              <TopicListPanel
+                drafts={planDrafts.drafts}
+                verticals={createVerticals}
+                onNew={handleNewDraft}
+                onOpen={handleOpenDraft}
+                onDelete={(id) => {
+                  if (window.confirm('删除这个选题？策划案和正文会一起删掉。')) planDrafts.removeDraft(id);
+                }}
+              />
+            </div>
+          ) : active === 'home' ? (
             <div className="mac-content-scroll">
               <HomePage onNavigate={(tab) => setActive(tab as AppTab)} />
             </div>
@@ -4295,6 +4596,24 @@ export default function AppShell() {
           ) : (
             <div className="mac-workspace">
               {active === 'create' ? (
+                <div className="flex min-w-0 flex-col gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCreateView('list')}
+                    className="self-start text-xs text-slate-400 transition hover:text-[#B4651B]"
+                  >
+                    ← 我的选题
+                  </button>
+                  {contentPlan ? (
+                    <PlanEditor
+                      plan={contentPlan}
+                      verticalName={createVertical.name}
+                      generating={loading === 'generate'}
+                      onChange={setContentPlan}
+                      onConfirm={handleCreateGenerate}
+                      onBack={() => setContentPlan(null)}
+                    />
+                  ) : (
                 <CreateStudio
                   brief={brief}
                   verticals={createVerticals}
@@ -4333,6 +4652,8 @@ export default function AppShell() {
                     resetWork();
                   }}
                 />
+                  )}
+                </div>
               ) : (
                 <InputCard
                 scene={scene}
@@ -4388,11 +4709,39 @@ export default function AppShell() {
                 contentResearchError={contentResearchError}
                 styleSkillName={styleSkills.activeSkill?.name}
                 chatSkillName={chatSkills.activeSkill?.name}
+                chatTone={chatTone}
+                onChatToneChange={setChatTone}
+                hedgeHits={hedgeHits}
+                chatHedgeCount={chatHedgeHits.length}
+                onRemoveHedges={handleRemoveHedges}
                 enabledGuideSkills={guideSkills.skills.filter((s) => s.enabled)}
                 reviewReport={reviewReport}
                 reviewLoading={reviewLoading}
                 onSelectAngle={setSelectedAngleId}
-                onGenerate={active === 'create' ? handleCreateGenerate : handleGenerate}
+                onGenerate={active === 'create' ? handleCreatePlan : handleGenerate}
+                generateLabel={active === 'create' ? '做策划案 →' : undefined}
+                plannerSlot={
+                  active === 'create' && contentPlan ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
+                      <FileText className="h-8 w-8 text-[#D8C6B4]" />
+                      <p className="text-sm font-medium text-slate-500">策划案在左侧，确认后生成正文</p>
+                      <p className="max-w-xs text-xs leading-5 text-slate-400">
+                        先选定标题，再补至少 1 条你真实经历的细节或证据。AI 不允许替你编造证据。
+                      </p>
+                    </div>
+                  ) : null
+                }
+                aestheticSlot={
+                  active === 'create' ? (
+                    <AestheticPanel
+                      review={aestheticReview}
+                      loading={aestheticLoading}
+                      optimizing={revisingContent}
+                      onReview={() => runAestheticReview(result.title, result.post)}
+                      onOptimize={handleAestheticOptimize}
+                    />
+                  ) : null
+                }
                 onAddCustomAngle={handleAddCustomAngle}
                 onBack={() => {
                   setResult(emptyResult);

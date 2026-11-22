@@ -155,7 +155,7 @@ export function CreateStudio({
       >
         <div>
           <p className="mac-kicker">Content studio</p>
-          <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">通用图文生成</h1>
+          <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">策划台</h1>
           <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
             面向小红书 / 抖音 / 公众号的通用图文创作入口。先选一个起点，再进入对应的创作流程。
           </p>
@@ -215,14 +215,14 @@ export function CreateStudio({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="mac-kicker">通用图文生成</p>
+          <p className="mac-kicker">策划台</p>
           <h1 className="mt-1 text-2xl font-bold text-[#1A1A1A]">
             {brief.entryMode === 'idea' ? '从 idea 开始' : '从参考图文开始'}
           </h1>
           <p className="mt-2 text-sm leading-6 text-[#6B6B6B]">
             {brief.entryMode === 'idea'
-              ? '选平台和赛道，填一个 idea，先出选题方向，再生成可修改的标题和正文。'
-              : '贴一篇参考爆款，先拆解写法，再基于拆解生成去重新文或存成模板。'}
+              ? '选平台和赛道，填一个 idea，先出选题方向与评分，再确认策划案，最后生成正文。'
+              : '贴一篇参考爆款，先拆解写法，再出选题和策划案，你确认后生成正文。'}
           </p>
         </div>
         <button
